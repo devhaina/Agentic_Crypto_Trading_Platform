@@ -26,10 +26,11 @@ namespace Agentiva.IntegrationTests;
 /// </remarks>
 public sealed class PostgresFixture : IAsyncLifetime
 {
-    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder()
-        // Pinned to the same major version the platform runs in production. A
-        // "latest" tag would make the suite's behaviour change without a commit.
-        .WithImage("postgres:17-alpine")
+    // Pinned to the same major version the platform runs in production via the
+    // constructor's image parameter, per the builder's own deprecation notice
+    // for the parameterless form. A "latest" tag would make the suite's
+    // behaviour change without a commit.
+    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("postgres:17-alpine")
         .WithDatabase("risk_test")
         .WithUsername("agentiva")
         .WithPassword("integration-test-only")

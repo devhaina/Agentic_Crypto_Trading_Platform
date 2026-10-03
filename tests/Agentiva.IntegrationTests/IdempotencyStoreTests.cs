@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Agentiva.BuildingBlocks.Application.Abstractions;
 using Agentiva.BuildingBlocks.Persistence.Idempotency;
 using Shouldly;
@@ -110,10 +111,20 @@ public sealed class IdempotencyStoreTests(PostgresFixture postgres) : IClassFixt
 
         record.ShouldNotBeNull();
         record!.State.ShouldBe(IdempotencyState.Completed);
+        record.ResponsePayload.ShouldNotBeNull();
 
         // The replay path: the caller gets back exactly what the first call
         // returned, so it cannot distinguish a replay from the original.
-        record.ResponsePayload.ShouldBe(payload);
+        //
+        // Compared by parsed value, not by raw string: the column is jsonb,
+        // and PostgreSQL re-serialises jsonb on the way back out (adding a
+        // space after each colon, among other canonicalisations), so a
+        // byte-for-byte comparison would fail on formatting that carries no
+        // semantic difference whatsoever.
+        JsonNode.DeepEquals(
+            JsonNode.Parse(record.ResponsePayload),
+            JsonNode.Parse(payload)
+        ).ShouldBeTrue($"expected {payload} but the stored payload was {record.ResponsePayload}");
     }
 
     /// <summary>
@@ -141,6 +152,7 @@ public sealed class IdempotencyStoreTests(PostgresFixture postgres) : IClassFixt
         var record = await store.FindAsync(key, TestContext.Current.CancellationToken);
         record.ShouldNotBeNull();
         record!.State.ShouldBe(IdempotencyState.Failed);
+        record.FailureReason.ShouldNotBeNull();
         record.FailureReason.ShouldContain("TimeoutException");
 
         // Still unclaimable: a retry must not be able to re-run a command whose
