@@ -43,6 +43,15 @@ public static class AgentivaJson
         };
 
         options.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false));
+
+        // Without this, a Result<T> serialises fine (serialisation only reads
+        // properties) but can never be deserialised back — the type has no
+        // constructor System.Text.Json's reflection converter can use, by
+        // design. That silent asymmetry is exactly what let a financial
+        // command's idempotency replay path throw at runtime while every
+        // unit test of the same command passed; see the remarks on
+        // ResultJsonConverterFactory.
+        options.Converters.Add(new Results.ResultJsonConverterFactory());
         return options;
     }
 

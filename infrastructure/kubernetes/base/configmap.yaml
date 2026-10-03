@@ -37,6 +37,15 @@ data:
   # misconfigured replica cannot create a queue that nothing drains.
   RabbitMq__DeclareTopologyOnStartup: "false"
 
+  # --- Database migrations --------------------------------------------------
+  #
+  # Off in a cluster, for the same reason as the RabbitMQ topology flag above:
+  # several replicas racing to apply the same EF Core migration at startup is
+  # how a schema ends up locked or half-applied. A dedicated migration Job,
+  # run once before any replica of a new version is scheduled, is the
+  # reviewed path — see docs/operations/migrations.md.
+  Migrator__Enabled: "false"
+
   # --- Observability -------------------------------------------------------
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.agentiva.svc.cluster.local:4317"
   OTEL_EXPORTER_OTLP_PROTOCOL: "grpc"

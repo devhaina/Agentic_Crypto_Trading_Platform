@@ -22,7 +22,7 @@ public static class RiskInfrastructureExtensions
         // --- Persistence -------------------------------------------------------
         services.AddAgentivaDbContext<RiskDbContext>(configuration);
         services.AddAgentivaOutboxProcessor<RiskDbContext>(configuration);
-        services.AddAgentivaDatabaseMigrator<RiskDbContext>();
+        services.AddAgentivaDatabaseMigrator<RiskDbContext>(configuration);
 
         services.AddScoped<IRiskPolicyRepository, RiskPolicyRepository>();
         services.AddScoped<IRiskCheckRepository, RiskCheckRepository>();

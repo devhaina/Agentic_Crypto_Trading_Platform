@@ -86,20 +86,33 @@ public static class PersistenceServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Applies pending EF Core migrations at startup.
+    /// Applies pending EF Core migrations at startup, when enabled.
     /// </summary>
     /// <typeparam name="TContext">The service's context type.</typeparam>
+    /// <param name="services">The service collection.</param>
+    /// <param name="configuration">
+    /// Configuration root, read for the <c>Migrator:Enabled</c> flag.
+    /// </param>
     /// <remarks>
-    /// Intended for local development and automated tests, where an unattended
-    /// <c>docker compose up</c> must produce a working database. In production
-    /// migrations run as a separate, reviewable pipeline step before the new
-    /// version is deployed — see <c>docs/operations/migrations.md</c> — because
-    /// several replicas racing to migrate the same database at startup is a
-    /// recipe for a locked or half-migrated schema.
+    /// Enabled by default, which is what makes an unattended
+    /// <c>docker compose up</c> produce a working database with no manual
+    /// step. Set <c>Migrator__Enabled=false</c> in any environment where
+    /// several replicas could start concurrently — several racing to migrate
+    /// the same database is a recipe for a locked or half-migrated schema —
+    /// and apply the migration as a separate, reviewable pipeline step
+    /// instead. See <c>docs/operations/migrations.md</c> and
+    /// <see cref="DatabaseMigratorOptions"/>.
     /// </remarks>
-    public static IServiceCollection AddAgentivaDatabaseMigrator<TContext>(this IServiceCollection services)
+    public static IServiceCollection AddAgentivaDatabaseMigrator<TContext>(
+        this IServiceCollection services,
+        IConfiguration configuration)
         where TContext : AgentivaDbContext
     {
+        services
+            .AddOptions<DatabaseMigratorOptions>()
+            .Bind(configuration.GetSection(DatabaseMigratorOptions.SectionName))
+            .ValidateOnStart();
+
         services.AddHostedService<DatabaseMigrator<TContext>>();
         return services;
     }

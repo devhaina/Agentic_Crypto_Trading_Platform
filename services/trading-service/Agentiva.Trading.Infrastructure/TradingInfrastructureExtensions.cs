@@ -52,7 +52,7 @@ public static class TradingInfrastructureExtensions
         // --- Persistence -------------------------------------------------------
         services.AddAgentivaDbContext<TradingDbContext>(configuration);
         services.AddAgentivaOutboxProcessor<TradingDbContext>(configuration);
-        services.AddAgentivaDatabaseMigrator<TradingDbContext>();
+        services.AddAgentivaDatabaseMigrator<TradingDbContext>(configuration);
 
         services.AddScoped<ITradingIntentRepository, TradingIntentRepository>();
 
