@@ -1,6 +1,10 @@
 {
   "//": [
-    "Agentiva RabbitMQ topology, loaded at broker start.",
+    "Agentiva RabbitMQ topology, imported after broker start by the one-shot",
+    "`rabbitmq-topology` container (see docker-compose.yml) via the management",
+    "HTTP API -- deliberately not via rabbitmq.conf's load_definitions, which",
+    "would suppress RABBITMQ_DEFAULT_USER creation on a fresh broker even with",
+    "an empty \"users\" array here (see infrastructure/rabbitmq/rabbitmq.conf).",
     "",
     "Declaring the topology here as well as in the services is deliberate. The",
     "services declare idempotently at startup so a developer's first",
@@ -12,7 +16,19 @@
     "The retry path is per-service rather than shared: see",
     "src/building-blocks/Agentiva.BuildingBlocks.Messaging/Configuration/EventBusTopology.cs",
     "for why dead-lettering a shared delay queue onto the main topic exchange",
-    "would fan a single service's retry back out to every one of its peers."
+    "would fan a single service's retry back out to every one of its peers.",
+    "",
+    "The 'agentiva-work-queues' policy below bounds every service's work queue",
+    "length: an unbounded queue hides a dead consumer until the broker runs",
+    "out of disk, whereas rejecting publishes past the bound makes the",
+    "failure visible immediately. No policy is needed for the dead-letter",
+    "queues themselves -- 'never expire a parked message automatically' is",
+    "RabbitMQ's default behaviour with no TTL set, not something a policy has",
+    "to state. A RabbitMQ policy's 'definition' object is validated strictly",
+    "against known broker settings, so -- unlike this top-level document,",
+    "which RabbitMQ does not validate as strictly -- it cannot carry an",
+    "explanatory '//' key of its own; that is why the rationale for each",
+    "policy lives here instead of beside it."
   ],
 
   "rabbit_version": "4.0.0",
@@ -33,19 +49,8 @@
       "apply-to": "queues",
       "priority": 1,
       "definition": {
-        "//": "A bounded queue length. An unbounded queue hides a dead consumer until the broker runs out of disk; rejecting publishes makes the failure visible immediately.",
         "max-length": 200000,
         "overflow": "reject-publish"
-      }
-    },
-    {
-      "vhost": "/",
-      "name": "agentiva-dead-letter-queues",
-      "pattern": "^agentiva\\..*\\.dlq$",
-      "apply-to": "queues",
-      "priority": 2,
-      "definition": {
-        "//": "Dead-lettered messages are evidence and are never expired automatically. In a financial system, discarding the record of a failed event is worse than a full queue."
       }
     }
   ],

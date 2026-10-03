@@ -195,10 +195,46 @@ public static class ServiceDefaultsExtensions
                 tags: [HealthTags.Ready]);
         }
 
+        // Gated on the connection provider actually being registered, not
+        // merely on RabbitMq:Host being configured: that setting is injected
+        // into every service uniformly, but only services that call
+        // AddAgentivaMessaging register IRabbitMqConnectionProvider. Gating on
+        // configuration alone would mark a service permanently Unhealthy for a
+        // broker it never connects to.
         var rabbitHost = configuration["RabbitMq:Host"];
-        if (!string.IsNullOrWhiteSpace(rabbitHost))
+        var hasRabbitMqProvider = builder.Services.Any(descriptor =>
+            descriptor.ServiceType
+                == typeof(Agentiva.BuildingBlocks.Messaging.RabbitMq.IRabbitMqConnectionProvider));
+        if (!string.IsNullOrWhiteSpace(rabbitHost) && hasRabbitMqProvider)
         {
-            checks.AddRabbitMQ(name: "rabbitmq", tags: [HealthTags.Ready]);
+            // The factory is required, not optional in practice: left null,
+            // this health check falls back to its own default ConnectionFactory
+            // (localhost:5672, guest/guest) instead of the credentials and host
+            // this service actually connects with — so it would report
+            // "Unhealthy" against a correctly running broker. Reusing
+            // IRabbitMqConnectionProvider's already-open connection is also
+            // cheaper than opening a second one purely to probe it.
+            //
+            // Bounded to a short timeout rather than calling GetConnectionAsync
+            // with no token: that method's retry policy is calibrated for
+            // *startup* (RabbitMqOptions defaults to 12 attempts, 5s apart —
+            // up to a minute), which is the right patience for a service
+            // waiting on a broker that is still starting, and completely the
+            // wrong patience for a health check. Called with no token, a /ready
+            // probe during that window hangs for up to a minute instead of
+            // promptly reporting "not ready yet" — which is worse than useless
+            // to an orchestrator deciding whether to route traffic.
+            checks.AddRabbitMQ(
+                factory: async sp =>
+                {
+                    var provider = sp
+                        .GetRequiredService<Agentiva.BuildingBlocks.Messaging.RabbitMq.IRabbitMqConnectionProvider>();
+
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                    return await provider.GetConnectionAsync(cts.Token);
+                },
+                name: "rabbitmq",
+                tags: [HealthTags.Ready]);
         }
     }
 

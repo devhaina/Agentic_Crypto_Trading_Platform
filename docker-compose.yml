@@ -228,6 +228,31 @@ services:
           cpus: "1.0"
           memory: 768M
 
+  # One-shot: imports exchanges/policies via the management HTTP API once the
+  # broker is healthy, then exits. Kept out of rabbitmq.conf's load_definitions
+  # deliberately -- see infrastructure/rabbitmq/rabbitmq.conf for why boot-time
+  # definition loading would leave a fresh broker with no users at all.
+  rabbitmq-topology:
+    image: rabbitmq:4-management-alpine
+    container_name: agentiva-platform-rabbitmq-topology
+    restart: "no"
+    networks: [agentiva]
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+    volumes:
+      - ./infrastructure/rabbitmq/definitions.json:/definitions.json:ro
+    entrypoint: ["sh", "-c"]
+    command:
+      - >
+        wget -q -O- --header="Content-Type: application/json"
+        --post-file=/definitions.json
+        "http://$$RABBITMQ_USER:$$RABBITMQ_PASSWORD@rabbitmq:15672/api/definitions"
+        && echo "rabbitmq topology applied"
+
   # ===========================================================================
   # Observability
   # ===========================================================================
@@ -655,7 +680,14 @@ services:
     <<: *service-defaults
     environment:
       AI_ENVIRONMENT: ${AGENTIVA_ENVIRONMENT:-local}
-      AI_LOG_LEVEL: ${SERILOG__MINIMUMLEVEL:-INFO}
+
+      # Deliberately its OWN variable, not SERILOG__MINIMUMLEVEL. That setting
+      # is the .NET services' vocabulary (Information, Warning, ...); the
+      # Python platform's Settings validates against Python's own level names
+      # (INFO, WARNING, ...). Reusing one for the other broke the agent
+      # platform outright -- "Information" is not a valid Python log level,
+      # so Settings() raised at import time and the container crash-looped.
+      AI_LOG_LEVEL: ${AI_LOG_LEVEL:-INFO}
 
       # "stub" runs deterministic rule-based analysis, which is the Phase 1
       # default and keeps the stack runnable with no vendor account.
