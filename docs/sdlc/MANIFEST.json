@@ -1,0 +1,33 @@
+{
+  "project": "Agentic Crypto Trading Platform",
+  "version": "1.0",
+  "documents": [
+    "00-README.md",
+    "01-PRD.md",
+    "02-BRD.md",
+    "03-SRS.md",
+    "04-Solution-Architecture.md",
+    "05-Microservice-Architecture.md",
+    "06-Service-Specifications.md",
+    "07-Database-Design.md",
+    "08-API-Contracts.md",
+    "09-Event-Contracts.md",
+    "10-Agentic-AI-Architecture.md",
+    "11-Trading-Risk-Specification.md",
+    "12-Security-Architecture.md",
+    "13-Backtesting-ML-Evaluation.md",
+    "14-Angular-Architecture.md",
+    "15-DevOps-CICD.md",
+    "16-Testing-Strategy.md",
+    "17-Observability.md",
+    "18-DR-BCP.md",
+    "19-Operations-Runbook.md",
+    "20-SDLC.md",
+    "21-ADRs.md",
+    "22-Threat-Model.md",
+    "23-MVP-Roadmap.md",
+    "24-Requirements-Traceability.md",
+    "25-Glossary.md"
+  ],
+  "generated_for": "Production-grade microservice architecture"
+}

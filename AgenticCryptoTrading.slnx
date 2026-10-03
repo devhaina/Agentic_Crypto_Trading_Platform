@@ -1,0 +1,65 @@
+<Solution>
+  <Folder Name="/contracts/" />
+  <Folder Name="/contracts/events/">
+    <Project Path="contracts/events/Agentiva.Contracts.Events/Agentiva.Contracts.Events.csproj" />
+  </Folder>
+  <Folder Name="/services/" />
+  <Folder Name="/services/api-gateway/">
+    <Project Path="services/api-gateway/Agentiva.Gateway.Api/Agentiva.Gateway.Api.csproj" />
+  </Folder>
+  <Folder Name="/services/audit-service/">
+    <Project Path="services/audit-service/Agentiva.Audit.Api/Agentiva.Audit.Api.csproj" />
+  </Folder>
+  <Folder Name="/services/backtesting-service/">
+    <Project Path="services/backtesting-service/Agentiva.Backtesting.Api/Agentiva.Backtesting.Api.csproj" />
+  </Folder>
+  <Folder Name="/services/configuration-service/">
+    <Project Path="services/configuration-service/Agentiva.Configuration.Api/Agentiva.Configuration.Api.csproj" />
+  </Folder>
+  <Folder Name="/services/execution-service/">
+    <Project Path="services/execution-service/Agentiva.Execution.Api/Agentiva.Execution.Api.csproj" />
+  </Folder>
+  <Folder Name="/services/identity-service/">
+    <Project Path="services/identity-service/Agentiva.Identity.Api/Agentiva.Identity.Api.csproj" />
+  </Folder>
+  <Folder Name="/services/market-data-service/">
+    <Project Path="services/market-data-service/Agentiva.MarketData.Api/Agentiva.MarketData.Api.csproj" />
+  </Folder>
+  <Folder Name="/services/notification-service/">
+    <Project Path="services/notification-service/Agentiva.Notification.Api/Agentiva.Notification.Api.csproj" />
+  </Folder>
+  <Folder Name="/services/portfolio-service/">
+    <Project Path="services/portfolio-service/Agentiva.Portfolio.Api/Agentiva.Portfolio.Api.csproj" />
+  </Folder>
+  <Folder Name="/services/reconciliation-service/">
+    <Project Path="services/reconciliation-service/Agentiva.Reconciliation.Api/Agentiva.Reconciliation.Api.csproj" />
+  </Folder>
+  <Folder Name="/services/risk-service/">
+    <Project Path="services/risk-service/Agentiva.Risk.Api/Agentiva.Risk.Api.csproj" />
+    <Project Path="services/risk-service/Agentiva.Risk.Application/Agentiva.Risk.Application.csproj" />
+    <Project Path="services/risk-service/Agentiva.Risk.Domain/Agentiva.Risk.Domain.csproj" />
+    <Project Path="services/risk-service/Agentiva.Risk.Infrastructure/Agentiva.Risk.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/services/strategy-service/">
+    <Project Path="services/strategy-service/Agentiva.Strategy.Api/Agentiva.Strategy.Api.csproj" />
+  </Folder>
+  <Folder Name="/services/trading-service/">
+    <Project Path="services/trading-service/Agentiva.Trading.Api/Agentiva.Trading.Api.csproj" />
+    <Project Path="services/trading-service/Agentiva.Trading.Application/Agentiva.Trading.Application.csproj" />
+    <Project Path="services/trading-service/Agentiva.Trading.Domain/Agentiva.Trading.Domain.csproj" />
+    <Project Path="services/trading-service/Agentiva.Trading.Infrastructure/Agentiva.Trading.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/" />
+  <Folder Name="/src/building-blocks/">
+    <Project Path="src/building-blocks/Agentiva.BuildingBlocks.Application/Agentiva.BuildingBlocks.Application.csproj" />
+    <Project Path="src/building-blocks/Agentiva.BuildingBlocks.Common/Agentiva.BuildingBlocks.Common.csproj" />
+    <Project Path="src/building-blocks/Agentiva.BuildingBlocks.Domain/Agentiva.BuildingBlocks.Domain.csproj" />
+    <Project Path="src/building-blocks/Agentiva.BuildingBlocks.Messaging/Agentiva.BuildingBlocks.Messaging.csproj" />
+    <Project Path="src/building-blocks/Agentiva.BuildingBlocks.Observability/Agentiva.BuildingBlocks.Observability.csproj" />
+    <Project Path="src/building-blocks/Agentiva.BuildingBlocks.Persistence/Agentiva.BuildingBlocks.Persistence.csproj" />
+    <Project Path="src/building-blocks/Agentiva.BuildingBlocks.ServiceDefaults/Agentiva.BuildingBlocks.ServiceDefaults.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Agentiva.UnitTests/Agentiva.UnitTests.csproj" />
+  </Folder>
+</Solution>

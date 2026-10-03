@@ -1,0 +1,113 @@
+# =============================================================================
+# Agentiva — Dashboard (Angular 22, served by nginx)
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: dashboard
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dashboard
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dashboard
+        app.kubernetes.io/part-of: agentiva
+        agentiva.io/tier: frontend
+    spec:
+      serviceAccountName: agentiva-service
+      automountServiceAccountToken: false
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: dashboard
+          image: ghcr.io/agentiva/dashboard:0.1.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8080
+
+          env:
+            # Injected into index.html at container start, so the same image
+            # is promoted unchanged through every environment.
+            - name: API_BASE_URL
+              value: https://agentiva.example.com/api
+            - name: APP_ENVIRONMENT
+              value: production
+
+          livenessProbe:
+            httpGet: { path: /alive, port: http }
+            periodSeconds: 15
+          readinessProbe:
+            httpGet: { path: /ready, port: http }
+            periodSeconds: 10
+
+          resources:
+            requests: { cpu: 25m, memory: 48Mi }
+            limits: { memory: 128Mi }
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+
+            # nginx writes its cache and pid at runtime, so the root
+            # filesystem cannot be fully read-only here. The writable paths are
+            # scoped to emptyDir volumes below instead.
+            readOnlyRootFilesystem: false
+
+          volumeMounts:
+            - { name: cache, mountPath: /var/cache/nginx }
+            - { name: run, mountPath: /tmp }
+
+      volumes:
+        - name: cache
+          emptyDir: { sizeLimit: 64Mi }
+        - name: run
+          emptyDir: { sizeLimit: 16Mi }
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: dashboard
+    app.kubernetes.io/part-of: agentiva
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: dashboard
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: dashboard
+  namespace: agentiva
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dashboard

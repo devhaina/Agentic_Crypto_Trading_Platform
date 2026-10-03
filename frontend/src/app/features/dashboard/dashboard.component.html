@@ -1,0 +1,239 @@
+<header class="page-header">
+  <h1>Operational dashboard</h1>
+  <p class="page-subtitle">
+    Live platform state. Figures awaiting a later phase are labelled as such rather than
+    populated with placeholder values.
+  </p>
+</header>
+
+<!-- ------------------------------------------------------------------------
+     Platform state — everything here is real in Phase 1.
+     ------------------------------------------------------------------------ -->
+<section class="card-grid">
+  <div class="card">
+    <div class="stat">
+      <span class="stat-label">Trading mode</span>
+      <span class="stat-value">{{ tradingMode() }}</span>
+      <span class="stat-note">
+        @if (tradingMode() === 'PAPER') {
+          Simulated fills. No real funds at risk.
+        } @else if (tradingMode() === 'LIVE') {
+          Real orders against real funds.
+        } @else {
+          No service has reported a mode yet.
+        }
+      </span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="stat">
+      <span class="stat-label">Kill switch</span>
+      <span class="stat-value">
+        @if (killSwitchEngaged()) {
+          <span class="badge badge--danger">ENGAGED</span>
+        } @else {
+          <span class="badge badge--ok">CLEAR</span>
+        }
+      </span>
+      <span class="stat-note">
+        @if (killSwitchEngaged()) {
+          No new orders are being admitted.
+        } @else {
+          New orders may be admitted, subject to the risk gate.
+        }
+      </span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="stat">
+      <span class="stat-label">Services reachable</span>
+      <span class="stat-value">{{ healthyServices().length }} / {{ statuses().length }}</span>
+      <span class="stat-note">
+        @if (lastUpdated()) {
+          Checked {{ lastUpdated() | date: 'HH:mm:ss' }}
+        } @else {
+          Checking…
+        }
+      </span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="stat">
+      <span class="stat-label">Risk decisions shown</span>
+      <span class="stat-value">{{ approvedIntentCount() }} / {{ rejectedIntentCount() }}</span>
+      <span class="stat-note">Approved / rejected, in the most recent intents.</span>
+    </div>
+  </div>
+</section>
+
+<!-- ------------------------------------------------------------------------
+     Awaiting later phases. Explicitly empty rather than fabricated.
+     ------------------------------------------------------------------------ -->
+<h2 style="margin-top: 1.75rem">Portfolio</h2>
+<section class="card-grid">
+  @for (panel of [
+    { label: 'Portfolio value', phase: 'Phase 6' },
+    { label: 'Today\'s P&L', phase: 'Phase 6' },
+    { label: 'Total P&L', phase: 'Phase 6' },
+    { label: 'Open positions', phase: 'Phase 6' },
+    { label: 'Exposure', phase: 'Phase 6' },
+    { label: 'Drawdown', phase: 'Phase 6' }
+  ]; track panel.label) {
+    <div class="card">
+      <div class="stat">
+        <span class="stat-label">{{ panel.label }}</span>
+        <span class="stat-value" style="color: var(--text-muted)">—</span>
+        <span class="stat-note">Awaiting the Portfolio Service ({{ panel.phase }}).</span>
+      </div>
+    </div>
+  }
+</section>
+
+<!-- ------------------------------------------------------------------------
+     Risk limits in force — real, read from the Risk Service.
+     ------------------------------------------------------------------------ -->
+<h2 style="margin-top: 1.75rem">Risk limits in force</h2>
+@if (riskPolicy(); as policy) {
+  <div class="card">
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Limit</th>
+            <th>Value</th>
+            <th>Limit</th>
+            <th>Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Max risk per trade</td>
+            <td class="numeric">{{ policy.maxRiskPerTradePercent }}%</td>
+            <td>Max daily loss</td>
+            <td class="numeric">{{ policy.maxDailyLossPercent }}%</td>
+          </tr>
+          <tr>
+            <td>Max portfolio exposure</td>
+            <td class="numeric">{{ policy.maxPortfolioExposurePercent }}%</td>
+            <td>Max asset concentration</td>
+            <td class="numeric">{{ policy.maxAssetConcentrationPercent }}%</td>
+          </tr>
+          <tr>
+            <td>Max position notional</td>
+            <td class="numeric">{{ policy.maxPositionNotional }}</td>
+            <td>Max open positions</td>
+            <td class="numeric">{{ policy.maxOpenPositions }}</td>
+          </tr>
+          <tr>
+            <td>Minimum confidence</td>
+            <td class="numeric">{{ policy.minConfidencePercent }}%</td>
+            <td>Max volatility</td>
+            <td class="numeric">{{ policy.maxVolatilityPercent }}%</td>
+          </tr>
+          <tr>
+            <td>Slippage assumption</td>
+            <td class="numeric">{{ policy.slippageAssumptionPercent }}%</td>
+            <td>Taker fee assumption</td>
+            <td class="numeric">{{ policy.takerFeePercent }}%</td>
+          </tr>
+          <tr>
+            <td>Stop-loss required</td>
+            <td>{{ policy.requireStopLoss ? 'Yes' : 'No' }}</td>
+            <td>Take-profit required</td>
+            <td>{{ policy.requireTakeProfit ? 'Yes' : 'No' }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="stat-note" style="margin-top: 0.75rem">
+      Policy <strong>{{ policy.name }}</strong>, last changed
+      {{ policy.updatedAt | date: 'medium' }} by {{ policy.updatedBy }}.
+    </p>
+  </div>
+} @else {
+  <div class="card">
+    <div class="empty-state">
+      The Risk Service has not reported a policy. It may still be starting, or no default
+      policy is seeded.
+    </div>
+  </div>
+}
+
+<!-- ------------------------------------------------------------------------
+     Recent trading intents — real.
+     ------------------------------------------------------------------------ -->
+<h2 style="margin-top: 1.75rem">Recent trading intents</h2>
+<div class="card">
+  @if (recentIntents().length === 0) {
+    <div class="empty-state">
+      No trading intents yet. Create one through
+      <code>POST /trading/intents</code> at the gateway, or from the
+      <a routerLink="/trading">Trading</a> page.
+    </div>
+  } @else {
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Created</th>
+            <th>Symbol</th>
+            <th>Side</th>
+            <th>Requested</th>
+            <th>Approved</th>
+            <th>Status</th>
+            <th>Source</th>
+            <th>Reason codes</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (intent of recentIntents(); track intent.tradingIntentId) {
+            <tr>
+              <td>{{ intent.createdAt | date: 'HH:mm:ss' }}</td>
+              <td>{{ intent.symbol }}</td>
+              <td>{{ intent.side }}</td>
+              <td class="numeric">{{ intent.requestedQuantity }}</td>
+              <td class="numeric">{{ intent.approvedQuantity }}</td>
+              <td><span [class]="statusBadge(intent.status)">{{ intent.status }}</span></td>
+              <td>{{ intent.source }}</td>
+              <td class="numeric" style="font-size: 0.6875rem">
+                {{ intent.rejectionCodes.join(', ') || '—' }}
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</div>
+
+<!-- ------------------------------------------------------------------------
+     Service health — real.
+     ------------------------------------------------------------------------ -->
+<h2 style="margin-top: 1.75rem">Service health</h2>
+<div class="card">
+  <div class="service-grid">
+    @for (service of statuses(); track service.route) {
+      <div class="service-chip" [class.service-chip--down]="!service.reachable">
+        <span class="service-name">{{ service.displayName }}</span>
+        @if (service.reachable) {
+          <span class="badge badge--ok">UP</span>
+        } @else {
+          <span class="badge badge--danger">DOWN</span>
+        }
+        @if (service.info) {
+          <span class="service-version">v{{ service.info.version }}</span>
+        }
+      </div>
+    }
+  </div>
+
+  @if (unhealthyServices().length > 0) {
+    <p class="stat-note" style="margin-top: 0.75rem">
+      Unreachable services may still be starting. Each applies its database migrations before
+      reporting ready.
+    </p>
+  }
+</div>

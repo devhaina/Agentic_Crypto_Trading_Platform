@@ -1,0 +1,82 @@
+# =============================================================================
+# Agentiva — OpenTelemetry Collector
+#
+# Every service exports traces and metrics here over OTLP, and Prometheus
+# scrapes the collector. Routing through a collector rather than having each
+# service host its own /metrics endpoint means sampling, batching and attribute
+# handling are configured in one place instead of in fourteen — and it avoids
+# depending on the OpenTelemetry Prometheus exporter for .NET, which has only
+# ever shipped as a beta package.
+# =============================================================================
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Batching is the single most important processor here: without it each span
+  # is a separate export call, and a busy market data service would spend more
+  # time exporting telemetry than processing ticks.
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+
+  # A hard memory ceiling. The collector refuses new data rather than being
+  # OOM-killed, because a collector that dies takes the platform's entire
+  # observability with it at precisely the moment it is needed.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 384
+    spike_limit_mib: 96
+
+  resourcedetection:
+    detectors: [env, system]
+    timeout: 5s
+    override: false
+
+exporters:
+  # Prometheus scrapes this endpoint.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+    # Resource attributes become labels, so a metric can be filtered by
+    # service without the service having to encode its name into every metric.
+    resource_to_telemetry_conversion:
+      enabled: true
+
+  # Traces to the console in local development. A production deployment adds a
+  # Tempo or Jaeger exporter here; the services need no change, which is the
+  # benefit of exporting through a collector.
+  debug:
+    verbosity: basic
+    sampling_initial: 2
+    sampling_thereafter: 500
+
+service:
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      level: basic
+
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, batch]
+      exporters: [debug]
+
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, batch]
+      exporters: [prometheus]
+
+  extensions: [health_check]
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133

@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: agentiva-production
+
+namespace: agentiva
+
+resources:
+  - ../../base
+
+patches:
+  # Production stays on PAPER until live trading is explicitly approved.
+  # Changing BOTH values is the deliberate, reviewed act that enables real
+  # orders — see docs/operations/going-live.md.
+  - target:
+      kind: ConfigMap
+      name: agentiva-common
+    patch: |-
+      - op: replace
+        path: /data/Trading__Mode
+        value: PAPER
+      - op: replace
+        path: /data/Trading__AllowLive
+        value: "false"

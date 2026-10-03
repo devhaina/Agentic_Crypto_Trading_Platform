@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Agentiva.ArchitectureTests</RootNamespace>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CA1707</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      References every layer under test. An architecture test has to be able to
+      load the assemblies it inspects, so this project intentionally depends on
+      things no production project may depend on.
+    -->
+    <ProjectReference Include="..\..\src\building-blocks\Agentiva.BuildingBlocks.Common\Agentiva.BuildingBlocks.Common.csproj" />
+    <ProjectReference Include="..\..\src\building-blocks\Agentiva.BuildingBlocks.Domain\Agentiva.BuildingBlocks.Domain.csproj" />
+    <ProjectReference Include="..\..\src\building-blocks\Agentiva.BuildingBlocks.Application\Agentiva.BuildingBlocks.Application.csproj" />
+    <ProjectReference Include="..\..\src\building-blocks\Agentiva.BuildingBlocks.Messaging\Agentiva.BuildingBlocks.Messaging.csproj" />
+    <ProjectReference Include="..\..\src\building-blocks\Agentiva.BuildingBlocks.Persistence\Agentiva.BuildingBlocks.Persistence.csproj" />
+    <ProjectReference Include="..\..\contracts\events\Agentiva.Contracts.Events\Agentiva.Contracts.Events.csproj" />
+    <ProjectReference Include="..\..\services\risk-service\Agentiva.Risk.Domain\Agentiva.Risk.Domain.csproj" />
+    <ProjectReference Include="..\..\services\risk-service\Agentiva.Risk.Application\Agentiva.Risk.Application.csproj" />
+    <ProjectReference Include="..\..\services\risk-service\Agentiva.Risk.Infrastructure\Agentiva.Risk.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\services\trading-service\Agentiva.Trading.Domain\Agentiva.Trading.Domain.csproj" />
+    <ProjectReference Include="..\..\services\trading-service\Agentiva.Trading.Application\Agentiva.Trading.Application.csproj" />
+    <ProjectReference Include="..\..\services\trading-service\Agentiva.Trading.Infrastructure\Agentiva.Trading.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="NetArchTest.Rules" />
+  </ItemGroup>
+
+</Project>

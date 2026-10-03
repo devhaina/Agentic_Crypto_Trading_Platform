@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Agentiva.Trading.Domain</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\building-blocks\Agentiva.BuildingBlocks.Common\Agentiva.BuildingBlocks.Common.csproj" />
+    <ProjectReference Include="..\..\..\src\building-blocks\Agentiva.BuildingBlocks.Domain\Agentiva.BuildingBlocks.Domain.csproj" />
+
+    <!--
+      The domain references the published event contracts solely for the routing
+      key constants in EventTypes. The outbox writes a domain event's EventType
+      straight onto the wire as its routing key, so a locally duplicated string
+      here would be a silent delivery failure the moment the two drifted apart:
+      nothing would fail to compile, and nothing would fail to publish — the
+      message would simply match no binding. One source of truth is worth the
+      dependency, and Contracts.Events is a pure contract assembly that itself
+      depends only on BuildingBlocks.Common. An architecture test asserts the
+      domain references nothing else outward.
+    -->
+    <ProjectReference Include="..\..\..\contracts\events\Agentiva.Contracts.Events\Agentiva.Contracts.Events.csproj" />
+  </ItemGroup>
+
+</Project>

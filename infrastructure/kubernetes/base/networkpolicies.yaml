@@ -1,0 +1,213 @@
+# =============================================================================
+# Network policies.
+#
+# Default-deny, then explicit allows. The important consequence is for the AI
+# agent platform: it can reach the gateway and nothing else, so even a fully
+# compromised agent pod cannot open a connection to an exchange, to a database,
+# or to the Execution Service. The trust boundary is enforced by the network,
+# not only by the absence of a tool.
+# =============================================================================
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: agentiva
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  # No rules: everything is denied until a policy below allows it.
+
+---
+# DNS must be allowed for every pod, or no service name resolves.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: agentiva
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+
+---
+# The gateway is the only pod that accepts traffic from outside the namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-gateway
+  namespace: agentiva
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: api-gateway
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - { protocol: TCP, port: 8080 }
+
+---
+# The gateway may reach every platform service.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-to-services
+  namespace: agentiva
+spec:
+  podSelector:
+    matchLabels:
+      agentiva.io/tier: service
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api-gateway
+      ports:
+        - { protocol: TCP, port: 8080 }
+
+---
+# The Trading Service may reach the Risk Service and the Execution Service.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-trading-to-risk-and-execution
+  namespace: agentiva
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: [risk-service, execution-service]
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: trading-service
+      ports:
+        - { protocol: TCP, port: 8080 }
+
+---
+# Every service may reach the shared infrastructure.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-services-to-infrastructure
+  namespace: agentiva
+spec:
+  podSelector:
+    matchLabels:
+      agentiva.io/tier: service
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              agentiva.io/tier: infrastructure
+      ports:
+        - { protocol: TCP, port: 5432 }   # PostgreSQL / TimescaleDB
+        - { protocol: TCP, port: 6379 }   # Redis
+        - { protocol: TCP, port: 5672 }   # RabbitMQ
+        - { protocol: TCP, port: 4317 }   # OTLP gRPC
+        - { protocol: TCP, port: 3100 }   # Loki
+
+---
+# =============================================================================
+# The AI agent platform: the tightest policy in the namespace.
+#
+# Egress is limited to the gateway and DNS. It cannot reach a database, the
+# broker, the Execution Service, or anything outside the cluster — including an
+# exchange API. Combined with holding no credentials and having no execution
+# tool, this is what makes "the AI cannot move funds" a property of the
+# deployment rather than a promise.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: restrict-agent-platform
+  namespace: agentiva
+  annotations:
+    agentiva.io/note: >-
+      The AI trust boundary, enforced at the network layer. Do not widen this
+      policy without a security review: egress to an exchange API or to the
+      execution service would break the platform's central security claim.
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent-platform
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # Only the gateway may invoke an agent run.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api-gateway
+      ports:
+        - { protocol: TCP, port: 8000 }
+  egress:
+    # Read-only platform data, through the gateway only.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api-gateway
+      ports:
+        - { protocol: TCP, port: 8080 }
+
+    # Telemetry.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: otel-collector
+      ports:
+        - { protocol: TCP, port: 4317 }
+
+    # DNS, granted by allow-dns above.
+    #
+    # Deliberately NOT granted: egress to 0.0.0.0/0. An LLM provider call needs
+    # internet egress, so a cluster using a hosted model must add a policy
+    # allowing exactly that provider's endpoint — never a blanket allow, which
+    # would also permit an exchange API.
+
+---
+# Only the Execution Service may egress to the internet, and only to the
+# exchange. This is the one pod that is supposed to talk to an exchange.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-execution-egress-to-exchange
+  namespace: agentiva
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: execution-service
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              # Never to private ranges: an exchange is on the public internet,
+              # and allowing private egress would let a compromised execution
+              # pod reach the rest of the cluster and the cloud metadata
+              # service.
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - { protocol: TCP, port: 443 }

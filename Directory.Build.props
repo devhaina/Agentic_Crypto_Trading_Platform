@@ -1,0 +1,48 @@
+<Project>
+
+  <!--
+    Solution-wide build settings for the Agentiva Agentic Crypto Trading Platform.
+    Every project inherits these; individual projects should only override with cause.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+
+    <!-- Deterministic, reproducible builds (required for container provenance). -->
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+
+    <!-- Analyzers on. Financial code gets no leeway on nullability or async misuse. -->
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+
+    <!--
+      CA2007  = ConfigureAwait. Not relevant in ASP.NET Core (no sync context).
+      CS1591  = missing XML comment. Enabled per-project on public API surfaces only.
+    -->
+    <NoWarn>$(NoWarn);CA2007;CS1591</NoWarn>
+
+    <!--
+      Hard failures. These three are the difference between a correct and an
+      incorrect financial system, so they are errors rather than warnings:
+      CS4014 = un-awaited task, CS0168/CS0219 = dead locals hiding logic errors.
+    -->
+    <WarningsAsErrors>$(WarningsAsErrors);CS4014</WarningsAsErrors>
+
+    <Product>Agentiva</Product>
+    <Company>Agentiva</Company>
+    <Authors>Agentiva Platform Team</Authors>
+    <VersionPrefix>0.1.0</VersionPrefix>
+  </PropertyGroup>
+
+  <!-- Source Link so stack traces in production map back to a commit. -->
+  <PropertyGroup>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,168 @@
+# =============================================================================
+# Agentiva — AI agent platform
+#
+# The most tightly constrained workload in the namespace. Note what is absent:
+# no database connection, no broker credentials, no exchange secret, and (via
+# restrict-agent-platform in networkpolicies.yaml) no egress beyond the gateway.
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-platform
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: agent-platform
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: ai
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-platform
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agent-platform
+        app.kubernetes.io/part-of: agentiva
+        agentiva.io/tier: ai
+    spec:
+      serviceAccountName: agentiva-service
+      automountServiceAccountToken: false
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Long enough for an in-flight agent run to finish rather than being cut
+      # off and reported as a failure.
+      terminationGracePeriodSeconds: 45
+
+      containers:
+        - name: agent-platform
+          image: ghcr.io/agentiva/agent-platform:0.1.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8000
+
+          env:
+            - name: AI_ENVIRONMENT
+              value: production
+            - name: AI_LOG_LEVEL
+              value: INFO
+
+            # "stub" runs deterministic rule-based analysis. Switching to a
+            # hosted model also requires a network policy permitting egress to
+            # that provider — see restrict-agent-platform, which deliberately
+            # grants no blanket internet egress.
+            - name: AI_LLM_PROVIDER
+              value: stub
+
+            - name: AI_GATEWAY_BASE_URL
+              value: http://api-gateway.agentiva.svc.cluster.local:8080
+            - name: AI_OTLP_ENDPOINT
+              value: http://otel-collector.agentiva.svc.cluster.local:4317
+            - name: AI_AGENT_TIMEOUT_SECONDS
+              value: "60"
+
+            # No credential of any kind is injected here. That absence is the
+            # security control, not an omission.
+
+          livenessProbe:
+            httpGet: { path: /alive, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet: { path: /ready, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              memory: 512Mi
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-platform
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: agent-platform
+    app.kubernetes.io/part-of: agentiva
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: agent-platform
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: agent-platform
+  namespace: agentiva
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: agent-platform
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: agent-platform
+  namespace: agentiva
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-platform

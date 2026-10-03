@@ -1,0 +1,171 @@
+# Agentiva — Agentic Crypto Trading Platform
+
+A production-shaped, microservice-based crypto trading platform where AI agents
+analyze markets and propose trades, a deterministic risk service is the only
+gate that can approve them, and a separate execution service is the only
+component that ever talks to an exchange.
+
+```
+AI Agents → Trading Proposal → Trading Service → Risk Service → APPROVED → Execution Service → Exchange
+```
+
+**The platform does not promise profit.** AI agents analyze and propose; they
+never execute. See [`docs/architecture/overview.md`](docs/architecture/overview.md)
+for the full security boundary.
+
+## Status: Phase 1 — Infrastructure
+
+This is the first deliverable in an eleven-phase plan (see
+[`docs/architecture/phases.md`](docs/architecture/phases.md)). Phase 1 ships:
+
+- A compiling, runnable microservice skeleton for all 13 .NET services, the AI
+  agent platform, and the Angular dashboard.
+- **Full working logic** in two services, ahead of their nominal phase, because
+  the risk gate and the intent workflow are the architectural spine everything
+  else hangs off: **Risk Service** (deterministic position sizing and the full
+  risk-check gate) and **Trading Service** (the intent → risk → execution
+  workflow).
+- The complete AI agent platform: five analysis agents, a strategy agent, an
+  orchestration graph, a deterministic stub LLM provider (no vendor account
+  needed), and the enforced tool-permission boundary.
+- Every piece of shared infrastructure: Postgres (database-per-service),
+  TimescaleDB, Redis, RabbitMQ (with per-service retry/dead-letter topology),
+  OpenTelemetry → Prometheus/Grafana/Loki, Docker Compose, and Kubernetes
+  manifests.
+- 207 automated tests (unit, architecture, integration) — see
+  [Testing](#testing) below.
+
+Everything else is a compiling skeleton with a documented "lands in Phase N"
+note on its page or endpoint — never a fabricated number or a fake response.
+
+## Quick start
+
+```bash
+cp .env.example .env            # generates nothing; edit secrets in, or use the
+                                 # openssl one-liners in the file's comments
+docker compose up --build
+```
+
+Once healthy:
+
+| What | URL |
+|---|---|
+| Dashboard | http://localhost:4200 |
+| API Gateway (Swagger) | http://localhost:8080/swagger |
+| Gateway health | http://localhost:8080/health |
+| AI agent platform (Swagger) | http://localhost:8000/swagger |
+| RabbitMQ management | http://localhost:15672 |
+| Grafana | http://localhost:3000 |
+| Prometheus | http://localhost:9090 |
+
+Every service also exposes `/alive` (liveness), `/ready` (readiness) and
+`/health` (detailed) directly.
+
+**No exchange connection is made in Phase 1.** `TRADING__MODE` defaults to
+`PAPER`, and switching to `LIVE` additionally requires `TRADING__ALLOWLIVE=true`
+— two independent settings, so one typo cannot enable real trading.
+
+## Try the risk gate and the AI pipeline
+
+```bash
+# Ask the agent platform to analyse a symbol (runs on the deterministic stub
+# provider by default — no LLM API key needed):
+curl -s -X POST http://localhost:8000/api/v1/agents/runs \
+  -H 'Content-Type: application/json' \
+  -d '{"symbol": "BTCUSDT", "timeframe": "15m"}' | jq
+
+# Submit a trading intent directly to the Trading Service (bypassing the
+# gateway's auth for a Phase 1 smoke test — see docs/api for the real flow):
+curl -s -X POST http://localhost:8083/api/v1/trading/intents \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: demo-001' \
+  -d '{
+    "tradingAccountId": "00000000-0000-0000-0000-000000000001",
+    "symbol": "BTCUSDT", "side": "BUY", "quantity": "0.01",
+    "entryPrice": "100000", "stopLoss": "98000", "takeProfit": "104000",
+    "confidence": "0.75", "source": "MANUAL"
+  }' | jq
+```
+
+The intent is recorded, submitted to the Risk Service, and the response shows
+the real decision: `RiskApproved` with a sized quantity, or `RiskRejected` with
+every failing check. Nothing here is simulated.
+
+## Repository layout
+
+```
+services/            13 .NET microservices (Clean Architecture where logic exists)
+src/building-blocks/ Shared .NET libraries: Domain, Application, Persistence,
+                      Messaging, Observability, ServiceDefaults
+contracts/events/    Published RabbitMQ event contracts — the only thing
+                      services may share across boundaries
+ai/agent-platform/    Python/FastAPI AI agent platform
+frontend/             Angular 22 dashboard
+infrastructure/       Docker, Kubernetes, Postgres/Timescale init, RabbitMQ,
+                      Prometheus/Grafana/Loki/OTel config
+tests/                Unit, architecture, and integration test projects
+docs/                 Architecture, security, database, operations, runbooks
+```
+
+## Architectural rules this repository enforces, not just states
+
+- **No floating point for money.** Enforced by an architecture test that scans
+  every financial type for `float`/`double`, and by a global EF Core
+  convention mapping every `decimal` to `NUMERIC(38,18)`.
+- **The AI cannot move funds.** Enforced three ways: the Python tool registry
+  refuses to register a forbidden tool name (including near-misses like
+  `submit_spot_order`) at startup; a `TradingProposal` has no field that could
+  express a position size; and in Kubernetes, a `NetworkPolicy` denies the
+  agent-platform pod egress to anything but the gateway — so even a fully
+  compromised agent pod cannot reach an exchange.
+- **Every financial command is idempotent.** A shared `IdempotencyBehavior`
+  claims a caller-supplied key via a uniquely-indexed Postgres row before a
+  handler runs; a second delivery of the same key replays the first outcome
+  instead of executing twice. Verified under concurrent load in
+  `Agentiva.IntegrationTests`.
+- **Clean Architecture is a build-time gate.** `Agentiva.ArchitectureTests`
+  asserts the Risk and Trading domains have zero dependency on EF Core,
+  ASP.NET Core, RabbitMQ or each other's assemblies.
+- **No service other than Execution references exchange credentials.** Checked
+  by a source-text scan in CI and by Kubernetes RBAC scoping the credential
+  secret to one `ServiceAccount`.
+
+## Testing
+
+```bash
+dotnet test tests/Agentiva.UnitTests           # 77 tests — value objects, mediator
+dotnet test tests/Agentiva.ArchitectureTests    # 13 tests — layering, financial safety
+dotnet test tests/Agentiva.IntegrationTests     # Testcontainers: real Postgres
+
+cd ai/agent-platform && .venv/bin/python -m pytest  # 84 tests — AI trust boundary,
+                                                      # proposal contract, pipeline
+```
+
+The integration tests start real PostgreSQL containers via Testcontainers,
+because the behaviour under test — `FOR UPDATE SKIP LOCKED` in the outbox
+claim, the unique-index idempotency race — does not exist in an in-memory
+provider.
+
+## Known limitations (Phase 1)
+
+Documented in full at
+[`docs/architecture/known-limitations.md`](docs/architecture/known-limitations.md).
+In brief: the Trading Service uses a configured paper-trading balance rather
+than the real Portfolio Service (lands Phase 6); the Risk Service's duplicate-
+order check is a placeholder until the Execution Service exists (Phase 5); no
+exchange connection exists yet (Phase 2 for market data, Phase 5 for orders).
+
+## Documentation
+
+- [`docs/architecture/overview.md`](docs/architecture/overview.md) — the security boundary and service map
+- [`docs/architecture/phases.md`](docs/architecture/phases.md) — the eleven-phase plan and what Phase 1 shipped
+- [`docs/architecture/known-limitations.md`](docs/architecture/known-limitations.md)
+- [`docs/database/schema.md`](docs/database/schema.md) — database-per-service layout
+- [`docs/security/`](docs/security/) — identity, database access, the AI trust boundary
+- [`docs/operations/`](docs/operations/) — migrations, alerting, going live
+- [`docs/runbooks/`](docs/runbooks/) — reconciliation failure, indeterminate orders
+- [`docs/sdlc/`](docs/sdlc/) — a separate, pre-existing high-level planning pack (PRD/BRD/SRS-style); not maintained as part of this implementation
+
+## License
+
+Proprietary. Not for external distribution.

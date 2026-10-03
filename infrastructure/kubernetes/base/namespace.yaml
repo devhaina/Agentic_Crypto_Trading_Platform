@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agentiva
+  labels:
+    name: agentiva
+    app.kubernetes.io/part-of: agentiva
+
+    # Enforces the restricted Pod Security Standard. Every Agentiva pod already
+    # runs non-root with no privilege escalation, so this makes the existing
+    # posture a hard admission requirement rather than a convention that a
+    # future manifest could quietly break.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

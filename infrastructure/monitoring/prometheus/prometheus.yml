@@ -1,0 +1,37 @@
+# =============================================================================
+# Agentiva — Prometheus
+#
+# Scrapes the OpenTelemetry Collector, which aggregates metrics from every
+# service. The services themselves expose no /metrics endpoint: see
+# infrastructure/monitoring/otel-collector/config.yaml for why.
+# =============================================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+
+  external_labels:
+    platform: agentiva
+    environment: local
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  # The platform's business and runtime metrics.
+  - job_name: agentiva-services
+    honor_labels: true
+    static_configs:
+      - targets: ["otel-collector:8889"]
+        labels:
+          source: otel-collector
+
+  # The collector's own health, so a telemetry pipeline failure is visible.
+  - job_name: otel-collector-internal
+    static_configs:
+      - targets: ["otel-collector:8888"]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

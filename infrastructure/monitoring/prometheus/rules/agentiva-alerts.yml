@@ -1,0 +1,150 @@
+# =============================================================================
+# Agentiva — alerting rules
+#
+# Every rule here is something an operator must act on. Deliberately short:
+# an alert that fires routinely and is routinely ignored is worse than no
+# alert, because it trains people to ignore the channel the real ones arrive on.
+#
+# Thresholds assume the Phase 1 paper-trading configuration and are reviewed
+# before live trading; see docs/operations/alerting.md.
+# =============================================================================
+
+groups:
+  - name: agentiva-integrity
+    interval: 30s
+    rules:
+      # ---------------------------------------------------------------------
+      # Critical: the platform's view of reality may be wrong.
+      # ---------------------------------------------------------------------
+      - alert: ReconciliationFailed
+        expr: increase(agentiva_reconciliation_failures_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Internal state disagrees with the exchange"
+          description: >-
+            A reconciliation run found a mismatch. Every risk calculation
+            downstream of this is suspect, and trading should already have been
+            disabled automatically. Do not re-enable trading until the
+            discrepancy is explained. Runbook:
+            docs/runbooks/reconciliation-failure.md
+
+      - alert: OrderOutcomeIndeterminate
+        expr: increase(agentiva_orders_indeterminate_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "An order's outcome could not be established"
+          description: >-
+            A submission timed out and the platform does not know whether an
+            order rests on the exchange book. Never retry blind — the position
+            may already exist. Runbook:
+            docs/runbooks/indeterminate-order.md
+
+      - alert: KillSwitchEngaged
+        expr: agentiva_kill_switch_engaged == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "The global kill switch is engaged"
+          description: >-
+            No new orders are being admitted. Identify the trigger before
+            releasing it; the switch is never released automatically.
+
+      # ---------------------------------------------------------------------
+      # Warning: a dependency or data feed is degraded.
+      # ---------------------------------------------------------------------
+      - alert: ExchangeDisconnected
+        expr: agentiva_exchange_connection_status == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The exchange connection is down"
+          description: >-
+            Market data is not arriving and orders cannot be submitted. The
+            risk gate refuses trades while the exchange is unreachable, so this
+            is a loss of capability rather than a safety problem.
+
+      - alert: MarketDataStale
+        expr: increase(agentiva_market_data_stale_total[10m]) > 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Market data is repeatedly going stale"
+          description: >-
+            The risk gate is refusing trades because prices are too old.
+            Check the WebSocket feed and the Redis cache.
+
+      - alert: OutboxBacklogGrowing
+        expr: agentiva_outbox_pending > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Unpublished events are accumulating"
+          description: >-
+            The outbox processor is not keeping up or cannot reach RabbitMQ.
+            Downstream services are working from stale state.
+
+      - alert: RiskRejectionSpike
+        expr: >-
+          increase(agentiva_risk_rejections_total[15m]) > 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "An unusual number of trades are being rejected"
+          description: >-
+            Expected after a limit change or a market move, but a sustained
+            spike can also mean a strategy or agent is proposing trades that
+            cannot pass the gate. Check the rejection reason codes.
+
+  - name: agentiva-risk
+    interval: 30s
+    rules:
+      - alert: DailyDrawdownApproachingLimit
+        expr: agentiva_drawdown_percent > 1.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Drawdown is approaching the daily loss limit"
+          description: >-
+            The default policy stops trading at 2%. This is a heads-up, not a
+            fault: the limit will enforce itself.
+
+      - alert: AgentFailureRateHigh
+        expr: >-
+          increase(agentiva_agent_failures_total[15m])
+          / clamp_min(increase(agentiva_agent_runs_total[15m]), 1) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than half of agent runs are failing"
+          description: >-
+            Usually a model provider outage or a schema-validation failure
+            after a contract change. The platform is safe — a failed agent run
+            produces no proposal — but the AI analysis is unavailable.
+
+  - name: agentiva-latency
+    interval: 30s
+    rules:
+      - alert: ExecutionLatencyHigh
+        expr: >-
+          histogram_quantile(0.95,
+            sum(rate(agentiva_execution_latency_ms_bucket[5m])) by (le)) > 2000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Order submission latency is high"
+          description: >-
+            The 95th percentile round trip to the exchange exceeds two seconds.
+            Slippage against the assumed entry price will exceed the risk
+            model's allowance.

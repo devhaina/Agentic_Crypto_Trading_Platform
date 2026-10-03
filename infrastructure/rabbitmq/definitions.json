@@ -1,0 +1,75 @@
+{
+  "//": [
+    "Agentiva RabbitMQ topology, loaded at broker start.",
+    "",
+    "Declaring the topology here as well as in the services is deliberate. The",
+    "services declare idempotently at startup so a developer's first",
+    "`docker compose up` works unattended, but in production they run with",
+    "DeclareTopologyOnStartup=false and this file is the reviewed source of",
+    "truth — a misconfigured replica must not be able to create a queue that",
+    "nothing drains.",
+    "",
+    "The retry path is per-service rather than shared: see",
+    "src/building-blocks/Agentiva.BuildingBlocks.Messaging/Configuration/EventBusTopology.cs",
+    "for why dead-lettering a shared delay queue onto the main topic exchange",
+    "would fan a single service's retry back out to every one of its peers."
+  ],
+
+  "rabbit_version": "4.0.0",
+  "rabbitmq_version": "4.0.0",
+
+  "users": [],
+  "vhosts": [{ "name": "/" }],
+  "permissions": [],
+  "parameters": [],
+  "global_parameters": [],
+  "topic_permissions": [],
+
+  "policies": [
+    {
+      "vhost": "/",
+      "name": "agentiva-work-queues",
+      "pattern": "^agentiva\\..*\\.q$",
+      "apply-to": "queues",
+      "priority": 1,
+      "definition": {
+        "//": "A bounded queue length. An unbounded queue hides a dead consumer until the broker runs out of disk; rejecting publishes makes the failure visible immediately.",
+        "max-length": 200000,
+        "overflow": "reject-publish"
+      }
+    },
+    {
+      "vhost": "/",
+      "name": "agentiva-dead-letter-queues",
+      "pattern": "^agentiva\\..*\\.dlq$",
+      "apply-to": "queues",
+      "priority": 2,
+      "definition": {
+        "//": "Dead-lettered messages are evidence and are never expired automatically. In a financial system, discarding the record of a failed event is worse than a full queue."
+      }
+    }
+  ],
+
+  "queues": [],
+  "exchanges": [
+    {
+      "name": "agentiva.events",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "agentiva.events.dlx",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "bindings": []
+}

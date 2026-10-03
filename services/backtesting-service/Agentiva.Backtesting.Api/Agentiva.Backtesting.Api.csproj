@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <RootNamespace>Agentiva.Backtesting.Api</RootNamespace>
+    <AssemblyName>Agentiva.Backtesting.Api</AssemblyName>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <UserSecretsId>agentiva-backtesting-service</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\building-blocks\Agentiva.BuildingBlocks.ServiceDefaults\Agentiva.BuildingBlocks.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+</Project>

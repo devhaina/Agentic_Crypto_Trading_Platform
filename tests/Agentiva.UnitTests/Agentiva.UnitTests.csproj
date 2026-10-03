@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Agentiva.UnitTests</RootNamespace>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CA1707</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\building-blocks\Agentiva.BuildingBlocks.Common\Agentiva.BuildingBlocks.Common.csproj" />
+    <ProjectReference Include="..\..\src\building-blocks\Agentiva.BuildingBlocks.Domain\Agentiva.BuildingBlocks.Domain.csproj" />
+    <ProjectReference Include="..\..\src\building-blocks\Agentiva.BuildingBlocks.Application\Agentiva.BuildingBlocks.Application.csproj" />
+    <ProjectReference Include="..\..\services\risk-service\Agentiva.Risk.Domain\Agentiva.Risk.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="FluentValidation" />
+  </ItemGroup>
+
+</Project>

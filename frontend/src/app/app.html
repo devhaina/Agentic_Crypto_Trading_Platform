@@ -1,0 +1,49 @@
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark">A</span>
+      <span class="brand-text">
+        <strong>Agentiva</strong>
+        <small>Agentic Crypto Trading</small>
+      </span>
+    </div>
+
+    <nav class="nav" aria-label="Main navigation">
+      @for (item of navItems; track item.path) {
+        <a
+          class="nav-item"
+          [routerLink]="item.path"
+          routerLinkActive="nav-item--active"
+          [routerLinkActiveOptions]="{ exact: false }"
+        >
+          {{ item.label }}
+        </a>
+      }
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="service-count" [class.service-count--degraded]="reachableCount() < totalCount()">
+        @if (loading()) {
+          Checking services…
+        } @else {
+          {{ reachableCount() }} / {{ totalCount() }} services reachable
+        }
+      </div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <!--
+      The mode banner is always visible. The trading mode changes what every
+      figure on every screen means, so an operator must never have to look for it.
+    -->
+    <div class="mode-banner" [attr.data-severity]="bannerSeverity()" role="status">
+      <span class="mode-badge">{{ tradingMode() }}</span>
+      <span class="mode-message">{{ bannerMessage() }}</span>
+    </div>
+
+    <main class="content">
+      <router-outlet />
+    </main>
+  </div>
+</div>

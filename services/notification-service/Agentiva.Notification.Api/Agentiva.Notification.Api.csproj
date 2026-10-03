@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <RootNamespace>Agentiva.Notification.Api</RootNamespace>
+    <AssemblyName>Agentiva.Notification.Api</AssemblyName>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <UserSecretsId>agentiva-notification-service</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\building-blocks\Agentiva.BuildingBlocks.ServiceDefaults\Agentiva.BuildingBlocks.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+</Project>

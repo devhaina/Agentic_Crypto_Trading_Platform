@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Agentiva.BuildingBlocks.Domain</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Agentiva.BuildingBlocks.Common\Agentiva.BuildingBlocks.Common.csproj" />
+  </ItemGroup>
+
+</Project>

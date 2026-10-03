@@ -1,0 +1,49 @@
+# =============================================================================
+# Non-secret configuration shared by every service.
+#
+# Secrets are deliberately absent: see secrets.yaml for how they are supplied.
+# =============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agentiva-common
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/part-of: agentiva
+data:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  ASPNETCORE_URLS: "http://+:8080"
+  TZ: "UTC"
+
+  # --- Trading mode --------------------------------------------------------
+  #
+  # PAPER, and AllowLive false. Promoting a cluster to live trading is a
+  # deliberate, reviewed change to BOTH values — a single flag is one bad merge
+  # away from trading real funds.
+  Trading__Mode: "PAPER"
+  Trading__AllowLive: "false"
+  Trading__KillSwitchEnabled: "false"
+  Trading__QuoteAsset: "USDT"
+
+  # --- Messaging -----------------------------------------------------------
+  RabbitMq__Host: "rabbitmq.agentiva.svc.cluster.local"
+  RabbitMq__Port: "5672"
+  RabbitMq__VirtualHost: "/"
+  RabbitMq__PrefetchCount: "16"
+  RabbitMq__MaxDeliveryAttempts: "3"
+
+  # Off in a cluster: topology is applied as a reviewed migration step, so a
+  # misconfigured replica cannot create a queue that nothing drains.
+  RabbitMq__DeclareTopologyOnStartup: "false"
+
+  # --- Observability -------------------------------------------------------
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.agentiva.svc.cluster.local:4317"
+  OTEL_EXPORTER_OTLP_PROTOCOL: "grpc"
+  Loki__Url: "http://loki.agentiva.svc.cluster.local:3100"
+  Serilog__MinimumLevel: "Information"
+
+  # --- Service discovery ---------------------------------------------------
+  Services__RiskServiceUrl: "http://risk-service.agentiva.svc.cluster.local:8080"
+  Services__ExecutionServiceUrl: "http://execution-service.agentiva.svc.cluster.local:8080"
+  Services__PortfolioServiceUrl: "http://portfolio-service.agentiva.svc.cluster.local:8080"

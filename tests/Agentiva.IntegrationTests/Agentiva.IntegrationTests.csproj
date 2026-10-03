@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Agentiva.IntegrationTests</RootNamespace>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CA1707</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\building-blocks\Agentiva.BuildingBlocks.Persistence\Agentiva.BuildingBlocks.Persistence.csproj" />
+    <ProjectReference Include="..\..\src\building-blocks\Agentiva.BuildingBlocks.Messaging\Agentiva.BuildingBlocks.Messaging.csproj" />
+    <ProjectReference Include="..\..\services\risk-service\Agentiva.Risk.Infrastructure\Agentiva.Risk.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\services\trading-service\Agentiva.Trading.Infrastructure\Agentiva.Trading.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="Testcontainers.Redis" />
+    <PackageReference Include="Testcontainers.RabbitMq" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+
+</Project>

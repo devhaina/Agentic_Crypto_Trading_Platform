@@ -1,0 +1,131 @@
+.permission-columns {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.tool-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+
+  li {
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+  }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.6875rem;
+  }
+
+  &--allowed li {
+    background: var(--success-subtle);
+    color: var(--success-text);
+  }
+
+  /* Forbidden tools are shown struck through: the list is a statement about
+     what cannot exist, not a menu of what is available. */
+  &--forbidden li {
+    background: var(--danger-subtle);
+    color: var(--danger-text);
+    text-decoration: line-through;
+  }
+}
+
+.run-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem;
+
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  input,
+  select {
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 0.375rem;
+    background: var(--surface);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    min-width: 8rem;
+  }
+
+  button {
+    padding: 0.45rem 1rem;
+    border: none;
+    border-radius: 0.375rem;
+    background: var(--accent);
+    color: var(--accent-contrast);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: progress;
+    }
+  }
+}
+
+.run-error {
+  margin: 0.75rem 0 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  background: var(--danger-subtle);
+  color: var(--danger-text);
+  font-size: 0.8125rem;
+}
+
+.detail-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.375rem 0;
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+  }
+}
+
+.tool-chip {
+  display: inline-block;
+  margin: 0 0.25rem 0.25rem 0;
+  padding: 0.125rem 0.4rem;
+  border-radius: 0.25rem;
+  background: var(--surface-hover);
+  font-size: 0.6875rem;
+}
+
+.analysis-card {
+  margin-top: 0.5rem;
+
+  summary {
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.875rem;
+  }
+}
+
+.analysis-json {
+  margin: 0.75rem 0 0;
+  padding: 0.75rem;
+  border-radius: 0.375rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  overflow-x: auto;
+}

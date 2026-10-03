@@ -1,0 +1,39 @@
+# =============================================================================
+# Agentiva — Grafana data sources
+#
+# Provisioned as files so a fresh `docker compose up` produces a working
+# Grafana with no manual clicking. Click-configured data sources are lost with
+# the volume and cannot be reviewed in a pull request.
+# =============================================================================
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: agentiva-prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      httpMethod: POST
+      timeInterval: 15s
+    editable: false
+
+  - name: Loki
+    type: loki
+    uid: agentiva-loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      maxLines: 1000
+
+      # Turns the TraceId field that every log line carries into a clickable
+      # link. Without it, correlating a log line with its distributed trace
+      # means guessing from timestamps.
+      derivedFields:
+        - name: TraceId
+          matcherRegex: '"TraceId":"(\w+)"'
+          url: '$${__value.raw}'
+          datasourceUid: agentiva-prometheus
+    editable: false

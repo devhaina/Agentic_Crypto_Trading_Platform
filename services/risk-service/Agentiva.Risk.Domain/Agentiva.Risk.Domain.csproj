@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Agentiva.Risk.Domain</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <!--
+    The domain layer depends on nothing but the shared primitives. No EF Core,
+    no ASP.NET, no messaging. An architecture test enforces this: the risk
+    calculations are the part of the platform that must stay pure and testable,
+    because they are the last gate before real money moves.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\building-blocks\Agentiva.BuildingBlocks.Common\Agentiva.BuildingBlocks.Common.csproj" />
+    <ProjectReference Include="..\..\..\src\building-blocks\Agentiva.BuildingBlocks.Domain\Agentiva.BuildingBlocks.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

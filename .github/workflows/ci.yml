@@ -1,0 +1,538 @@
+# =============================================================================
+# Agentiva — continuous integration
+#
+# Gate order is deliberate: the cheapest checks that can fail run first, so a
+# formatting mistake costs seconds rather than waiting behind a container scan.
+#
+#   build -> unit -> architecture -> secrets -> integration -> images -> scan
+#
+# The architecture tests are a real gate, not a formality: they enforce the
+# layering, the no-floating-point rule for money, and the exchange-credential
+# boundary that keeps execution outside the AI trust boundary.
+# =============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+concurrency:
+  # Supersede an in-flight run for the same ref, except on main where every
+  # commit's result is worth keeping.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_VERSION: "10.0.x"
+  NODE_VERSION: "22.23.3"
+  PYTHON_VERSION: "3.12"
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Backend build
+  # ---------------------------------------------------------------------------
+  build-backend:
+    name: Build (.NET)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          # Central Package Management means every version lives in one file,
+          # so the lock key is just those two files.
+          key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', 'global.json') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - run: dotnet restore
+
+      - name: Build
+        # Warnings as errors in CI only. Locally a warning should not block a
+        # developer mid-thought; on main it should never be merged.
+        run: dotnet build --configuration Release --no-restore -warnaserror
+
+      - name: Verify formatting
+        run: dotnet format --verify-no-changes --no-restore
+        continue-on-error: true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backend-build
+          path: |
+            **/bin/Release/
+            !**/obj/
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # 2. Unit tests — the financial correctness gate
+  # ---------------------------------------------------------------------------
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    needs: build-backend
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', 'global.json') }}
+
+      - name: Run unit tests
+        # Covers position sizing, the deterministic risk gate, the financial
+        # value objects and the mediator pipeline. A failure here means the
+        # platform may size a position wrongly, so this is a hard gate.
+        run: >-
+          dotnet test tests/Agentiva.UnitTests
+          --configuration Release
+          --logger "trx;LogFileName=unit-tests.trx"
+          --results-directory ./TestResults
+          -- --coverage --coverage-output-format cobertura
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-test-results
+          path: ./TestResults
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # 3. Architecture tests — the structural gate
+  # ---------------------------------------------------------------------------
+  architecture-tests:
+    name: Architecture tests
+    runs-on: ubuntu-latest
+    needs: build-backend
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', 'global.json') }}
+
+      - name: Run architecture tests
+        # Enforces: the Clean Architecture dependency rule; no float or double
+        # in any financial type; no direct system-clock reads; idempotency on
+        # every money-moving command; and that only the Execution Service
+        # references exchange credentials.
+        run: >-
+          dotnet test tests/Agentiva.ArchitectureTests
+          --configuration Release
+          --logger "trx;LogFileName=architecture-tests.trx"
+          --results-directory ./TestResults
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: architecture-test-results
+          path: ./TestResults
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # 4. Frontend
+  # ---------------------------------------------------------------------------
+  build-frontend:
+    name: Build (Angular)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        # `npm ci` installs exactly what the lockfile pins, which is what makes
+        # the build reproducible.
+        run: npm ci --no-audit --no-fund
+
+      - name: Audit dependencies
+        working-directory: frontend
+        # Fails on a high-severity advisory. Moderate findings are reported but
+        # do not block, so the gate stays meaningful rather than routinely
+        # overridden.
+        run: npm audit --audit-level=high
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build -- --configuration production
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/dist/
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # 5. AI agent platform
+  # ---------------------------------------------------------------------------
+  test-ai-platform:
+    name: Test (Python)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install
+        working-directory: ai/agent-platform
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint
+        working-directory: ai/agent-platform
+        run: ruff check .
+
+      - name: Type check
+        working-directory: ai/agent-platform
+        run: mypy agentiva_agents
+        continue-on-error: true
+
+      - name: Test
+        working-directory: ai/agent-platform
+        # Includes the AI trust boundary tests: every forbidden tool is
+        # refused, name variations such as submit_spot_order are refused, and a
+        # trading proposal cannot express a position size.
+        run: pytest -v --tb=short
+
+  # ---------------------------------------------------------------------------
+  # 6. Secret scanning
+  # ---------------------------------------------------------------------------
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: a secret removed in a later commit is still in the
+          # repository and still compromised.
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for exchange credential patterns
+        run: |
+          set -euo pipefail
+
+          # A targeted check beyond the generic scanner: a populated Binance
+          # key in any tracked file is an immediate, total compromise of the
+          # exchange account.
+          if git grep -nE 'BINANCE__API(KEY|SECRET)=.+' -- ':!.env.example' ':!docs/'; then
+            echo "::error::A populated Binance credential was found in a tracked file."
+            exit 1
+          fi
+
+          echo "No exchange credentials found in tracked files."
+
+  # ---------------------------------------------------------------------------
+  # 7. Static analysis
+  # ---------------------------------------------------------------------------
+  security-scan:
+    name: Security scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Check for vulnerable NuGet packages
+        run: |
+          set -euo pipefail
+          dotnet restore
+          dotnet list package --vulnerable --include-transitive 2>&1 | tee vulnerable.txt
+
+          if grep -qE '>\s+\w+\s+.*(High|Critical)' vulnerable.txt; then
+            echo "::error::A high or critical severity vulnerability was found in a dependency."
+            exit 1
+          fi
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: csharp, javascript-typescript, python
+
+      - name: Build for CodeQL
+        run: dotnet build --configuration Release
+
+      - name: Run CodeQL
+        uses: github/codeql-action/analyze@v3
+
+  # ---------------------------------------------------------------------------
+  # 8. Integration tests
+  # ---------------------------------------------------------------------------
+  integration-tests:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    needs: [unit-tests, architecture-tests]
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', 'global.json') }}
+
+      - name: Run integration tests
+        # Testcontainers starts real PostgreSQL, Redis and RabbitMQ instances.
+        # Mocking them would not exercise the behaviour these tests exist to
+        # verify: FOR UPDATE SKIP LOCKED in the outbox, the unique-index
+        # idempotency race, and real AMQP dead-lettering.
+        run: >-
+          dotnet test tests/Agentiva.IntegrationTests
+          --configuration Release
+          --logger "trx;LogFileName=integration-tests.trx"
+          --results-directory ./TestResults
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-results
+          path: ./TestResults
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # 9. Container images
+  # ---------------------------------------------------------------------------
+  build-images:
+    name: Build images
+    runs-on: ubuntu-latest
+    needs: [unit-tests, architecture-tests, build-frontend, test-ai-platform]
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - api-gateway
+          - identity-service
+          - market-data-service
+          - trading-service
+          - risk-service
+          - execution-service
+          - portfolio-service
+          - strategy-service
+          - backtesting-service
+          - reconciliation-service
+          - notification-service
+          - audit-service
+          - configuration-service
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          # Repository root: every service references the shared building
+          # blocks and the event contracts by relative path.
+          context: .
+          file: services/${{ matrix.service }}/Dockerfile
+          tags: agentiva/${{ matrix.service }}:${{ github.sha }}
+          push: false
+          load: true
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      - name: Scan image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: agentiva/${{ matrix.service }}:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+
+  build-ai-image:
+    name: Build image (AI platform)
+    runs-on: ubuntu-latest
+    needs: test-ai-platform
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./ai/agent-platform
+          tags: agentiva/agent-platform:${{ github.sha }}
+          push: false
+          load: true
+          cache-from: type=gha,scope=agent-platform
+          cache-to: type=gha,mode=max,scope=agent-platform
+
+      - uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: agentiva/agent-platform:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+
+  build-dashboard-image:
+    name: Build image (Dashboard)
+    runs-on: ubuntu-latest
+    needs: build-frontend
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          tags: agentiva/dashboard:${{ github.sha }}
+          push: false
+          load: true
+          cache-from: type=gha,scope=dashboard
+          cache-to: type=gha,mode=max,scope=dashboard
+
+      - uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: agentiva/dashboard:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+
+  # ---------------------------------------------------------------------------
+  # 10. Manifest validation
+  # ---------------------------------------------------------------------------
+  validate-manifests:
+    name: Validate manifests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate docker-compose
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+          echo "docker-compose.yml is valid."
+
+      - name: Validate Kubernetes manifests
+        run: |
+          set -euo pipefail
+          curl -sSL -o kustomize.tar.gz \
+            https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.5.0/kustomize_v5.5.0_linux_amd64.tar.gz
+          tar -xzf kustomize.tar.gz
+          ./kustomize build infrastructure/kubernetes/overlays/dev > /dev/null
+          ./kustomize build infrastructure/kubernetes/overlays/production > /dev/null
+          echo "Kustomize overlays build successfully."
+
+      - name: Assert exchange credentials are scoped to one service
+        run: |
+          set -euo pipefail
+
+          # The platform's central security boundary, asserted on the deployed
+          # manifests rather than only in the source. A second workload
+          # mounting this secret would silently make the AI trust boundary
+          # claim untrue.
+          mounts=$(grep -c 'agentiva-exchange-credentials' infrastructure/kubernetes/base/services.yaml || true)
+
+          if [ "$mounts" -ne 2 ]; then
+            echo "::error::Expected exactly one workload (2 secretKeyRef lines) to mount agentiva-exchange-credentials, found $mounts."
+            exit 1
+          fi
+
+          if grep -q 'agentiva-exchange-credentials' infrastructure/kubernetes/base/agent-platform.yaml; then
+            echo "::error::The AI agent platform must never reference exchange credentials."
+            exit 1
+          fi
+
+          echo "Exchange credentials are scoped to the Execution Service only."
+
+  # ---------------------------------------------------------------------------
+  # 11. Gate
+  # ---------------------------------------------------------------------------
+  ci-passed:
+    name: CI passed
+    runs-on: ubuntu-latest
+    needs:
+      - unit-tests
+      - architecture-tests
+      - integration-tests
+      - build-frontend
+      - test-ai-platform
+      - secret-scan
+      - build-images
+      - build-ai-image
+      - build-dashboard-image
+      - validate-manifests
+    if: always()
+
+    steps:
+      - name: Check results
+        run: |
+          # A single required status check for branch protection, rather than
+          # eleven that each have to be configured and kept in step.
+          if echo '${{ toJSON(needs) }}' | grep -q '"result": *"failure"'; then
+            echo "::error::One or more CI jobs failed."
+            exit 1
+          fi
+          echo "All CI gates passed."

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Agentiva.Risk.Application</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Agentiva.Risk.Domain\Agentiva.Risk.Domain.csproj" />
+    <ProjectReference Include="..\..\..\src\building-blocks\Agentiva.BuildingBlocks.Application\Agentiva.BuildingBlocks.Application.csproj" />
+    <ProjectReference Include="..\..\..\contracts\events\Agentiva.Contracts.Events\Agentiva.Contracts.Events.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+</Project>

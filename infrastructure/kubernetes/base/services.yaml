@@ -1,0 +1,3050 @@
+# =============================================================================
+# Agentiva — platform service workloads
+#
+# Generated from one template so that thirteen services stay consistent;
+# committed as plain YAML and reviewed as such.
+#
+# Apply order: namespace, serviceaccounts, configmap, secrets, then this file.
+# Use the Kustomize overlays in ../overlays rather than applying directly.
+# =============================================================================
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: api-gateway
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-gateway
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+    app.kubernetes.io/name: api-gateway
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+    spec:
+      serviceAccountName: agentiva-service
+      automountServiceAccountToken: false
+
+      # Satisfies the restricted Pod Security Standard enforced on the
+      # namespace. The images already run as a non-root user; this makes it a
+      # hard requirement that admission checks.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 64198
+        fsGroup: 64198
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Long enough for in-flight requests and message handlers to finish and
+      # acknowledge. Cutting a handler off mid-work produces a redelivery that
+      # the inbox then has to de-duplicate.
+      terminationGracePeriodSeconds: 45
+
+      containers:
+        - name: api-gateway
+          image: ghcr.io/agentiva/api-gateway:0.1.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: agentiva-common
+
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: POSTGRES_PASSWORD
+            - name: TIMESCALE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: TIMESCALE_PASSWORD
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: REDIS_PASSWORD
+            - name: RabbitMq__UserName
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_USER
+            - name: RabbitMq__Password
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_PASSWORD
+            - name: Jwt__SigningKey
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: JWT_SIGNING_KEY
+            - name: ConnectionStrings__Redis
+              value: redis.agentiva.svc.cluster.local:6379,password=$(REDIS_PASSWORD),abortConnect=false
+
+          # --- Probes ------------------------------------------------------
+          #
+          # Liveness hits /alive, which is process-local. Readiness hits
+          # /ready, which includes dependencies. The distinction matters: a
+          # liveness probe that checked the database would have the kubelet
+          # kill and restart every replica during a database blip, turning a
+          # recoverable outage into a cluster-wide crash loop.
+          livenessProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Gives the service time to apply its migrations before the liveness
+          # probe can kill it.
+          startupProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              # No CPU limit, deliberately. A CPU limit causes CFS throttling,
+              # which on a latency-sensitive trading path produces multi-
+              # hundred-millisecond stalls that look like network problems.
+              # The request guarantees a share; the memory limit is the hard
+              # bound that matters.
+              memory: 512Mi
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            # The root filesystem is read-only, so the runtime needs a writable
+            # temp directory.
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: api-gateway
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: api-gateway
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-gateway
+  namespace: agentiva
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-gateway
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      # Slow, and over a long window. Rapid scale-down on a trading platform
+      # discards a replica that was mid-handler and causes an avoidable
+      # redelivery.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api-gateway
+  namespace: agentiva
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-gateway
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: identity-service
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: identity-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: identity-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+    app.kubernetes.io/name: identity-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+    spec:
+      serviceAccountName: agentiva-service
+      automountServiceAccountToken: false
+
+      # Satisfies the restricted Pod Security Standard enforced on the
+      # namespace. The images already run as a non-root user; this makes it a
+      # hard requirement that admission checks.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 64198
+        fsGroup: 64198
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Long enough for in-flight requests and message handlers to finish and
+      # acknowledge. Cutting a handler off mid-work produces a redelivery that
+      # the inbox then has to de-duplicate.
+      terminationGracePeriodSeconds: 45
+
+      containers:
+        - name: identity-service
+          image: ghcr.io/agentiva/identity-service:0.1.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: agentiva-common
+
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: POSTGRES_PASSWORD
+            - name: TIMESCALE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: TIMESCALE_PASSWORD
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: REDIS_PASSWORD
+            - name: RabbitMq__UserName
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_USER
+            - name: RabbitMq__Password
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_PASSWORD
+            - name: Jwt__SigningKey
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: JWT_SIGNING_KEY
+            - name: ConnectionStrings__Postgres
+              value: >-
+                Host=postgres.agentiva.svc.cluster.local;Port=5432;Database=identity_db;
+                Username=agentiva;Password=$(POSTGRES_PASSWORD)
+            - name: ConnectionStrings__Redis
+              value: redis.agentiva.svc.cluster.local:6379,password=$(REDIS_PASSWORD),abortConnect=false
+
+          # --- Probes ------------------------------------------------------
+          #
+          # Liveness hits /alive, which is process-local. Readiness hits
+          # /ready, which includes dependencies. The distinction matters: a
+          # liveness probe that checked the database would have the kubelet
+          # kill and restart every replica during a database blip, turning a
+          # recoverable outage into a cluster-wide crash loop.
+          livenessProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Gives the service time to apply its migrations before the liveness
+          # probe can kill it.
+          startupProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              # No CPU limit, deliberately. A CPU limit causes CFS throttling,
+              # which on a latency-sensitive trading path produces multi-
+              # hundred-millisecond stalls that look like network problems.
+              # The request guarantees a share; the memory limit is the hard
+              # bound that matters.
+              memory: 512Mi
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            # The root filesystem is read-only, so the runtime needs a writable
+            # temp directory.
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: identity-service
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: identity-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: identity-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: identity-service
+  namespace: agentiva
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: identity-service
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      # Slow, and over a long window. Rapid scale-down on a trading platform
+      # discards a replica that was mid-handler and causes an avoidable
+      # redelivery.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: identity-service
+  namespace: agentiva
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: identity-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: market-data-service
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: market-data-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  replicas: 1
+      # Deliberately a single replica.
+      #
+      # This service holds a stateful, non-shardable position: the market data
+      # service owns one exchange WebSocket subscription per symbol, and two
+      # replicas would both subscribe and double-publish every tick. The
+      # reconciliation service compares platform state against the exchange,
+      # and two concurrent comparisons would race each other to disable
+      # trading. Both become horizontally scalable once they use a distributed
+      # lease; until then, scaling them out is a correctness bug rather than a
+      # capacity improvement.
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: market-data-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+    app.kubernetes.io/name: market-data-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+    spec:
+      serviceAccountName: agentiva-service
+      automountServiceAccountToken: false
+
+      # Satisfies the restricted Pod Security Standard enforced on the
+      # namespace. The images already run as a non-root user; this makes it a
+      # hard requirement that admission checks.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 64198
+        fsGroup: 64198
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Long enough for in-flight requests and message handlers to finish and
+      # acknowledge. Cutting a handler off mid-work produces a redelivery that
+      # the inbox then has to de-duplicate.
+      terminationGracePeriodSeconds: 45
+
+      containers:
+        - name: market-data-service
+          image: ghcr.io/agentiva/market-data-service:0.1.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: agentiva-common
+
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: POSTGRES_PASSWORD
+            - name: TIMESCALE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: TIMESCALE_PASSWORD
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: REDIS_PASSWORD
+            - name: RabbitMq__UserName
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_USER
+            - name: RabbitMq__Password
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_PASSWORD
+            - name: Jwt__SigningKey
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: JWT_SIGNING_KEY
+            - name: ConnectionStrings__Timescale
+              value: >-
+                Host=timescaledb.agentiva.svc.cluster.local;Port=5432;Database=market_db;
+                Username=agentiva;Password=$(TIMESCALE_PASSWORD)
+            - name: ConnectionStrings__Redis
+              value: redis.agentiva.svc.cluster.local:6379,password=$(REDIS_PASSWORD),abortConnect=false
+
+          # --- Probes ------------------------------------------------------
+          #
+          # Liveness hits /alive, which is process-local. Readiness hits
+          # /ready, which includes dependencies. The distinction matters: a
+          # liveness probe that checked the database would have the kubelet
+          # kill and restart every replica during a database blip, turning a
+          # recoverable outage into a cluster-wide crash loop.
+          livenessProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Gives the service time to apply its migrations before the liveness
+          # probe can kill it.
+          startupProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              # No CPU limit, deliberately. A CPU limit causes CFS throttling,
+              # which on a latency-sensitive trading path produces multi-
+              # hundred-millisecond stalls that look like network problems.
+              # The request guarantees a share; the memory limit is the hard
+              # bound that matters.
+              memory: 512Mi
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            # The root filesystem is read-only, so the runtime needs a writable
+            # temp directory.
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: market-data-service
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: market-data-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: market-data-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: market-data-service
+  namespace: agentiva
+  annotations:
+    agentiva.io/note: >-
+      maxUnavailable 0 on a single-replica service: a voluntary disruption such
+      as a node drain must be blocked rather than take the service down. Drain
+      requires an operator to scale up first or to accept the outage explicitly.
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: market-data-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trading-service
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: trading-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: trading-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+    app.kubernetes.io/name: trading-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+    spec:
+      serviceAccountName: agentiva-service
+      automountServiceAccountToken: false
+
+      # Satisfies the restricted Pod Security Standard enforced on the
+      # namespace. The images already run as a non-root user; this makes it a
+      # hard requirement that admission checks.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 64198
+        fsGroup: 64198
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Long enough for in-flight requests and message handlers to finish and
+      # acknowledge. Cutting a handler off mid-work produces a redelivery that
+      # the inbox then has to de-duplicate.
+      terminationGracePeriodSeconds: 45
+
+      containers:
+        - name: trading-service
+          image: ghcr.io/agentiva/trading-service:0.1.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: agentiva-common
+
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: POSTGRES_PASSWORD
+            - name: TIMESCALE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: TIMESCALE_PASSWORD
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: REDIS_PASSWORD
+            - name: RabbitMq__UserName
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_USER
+            - name: RabbitMq__Password
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_PASSWORD
+            - name: Jwt__SigningKey
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: JWT_SIGNING_KEY
+            - name: ConnectionStrings__Postgres
+              value: >-
+                Host=postgres.agentiva.svc.cluster.local;Port=5432;Database=trading_db;
+                Username=agentiva;Password=$(POSTGRES_PASSWORD)
+            - name: ConnectionStrings__Redis
+              value: redis.agentiva.svc.cluster.local:6379,password=$(REDIS_PASSWORD),abortConnect=false
+
+          # --- Probes ------------------------------------------------------
+          #
+          # Liveness hits /alive, which is process-local. Readiness hits
+          # /ready, which includes dependencies. The distinction matters: a
+          # liveness probe that checked the database would have the kubelet
+          # kill and restart every replica during a database blip, turning a
+          # recoverable outage into a cluster-wide crash loop.
+          livenessProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Gives the service time to apply its migrations before the liveness
+          # probe can kill it.
+          startupProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              # No CPU limit, deliberately. A CPU limit causes CFS throttling,
+              # which on a latency-sensitive trading path produces multi-
+              # hundred-millisecond stalls that look like network problems.
+              # The request guarantees a share; the memory limit is the hard
+              # bound that matters.
+              memory: 512Mi
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            # The root filesystem is read-only, so the runtime needs a writable
+            # temp directory.
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trading-service
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: trading-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: trading-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: trading-service
+  namespace: agentiva
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: trading-service
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      # Slow, and over a long window. Rapid scale-down on a trading platform
+      # discards a replica that was mid-handler and causes an avoidable
+      # redelivery.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: trading-service
+  namespace: agentiva
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: trading-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: risk-service
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: risk-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: risk-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+    app.kubernetes.io/name: risk-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+    spec:
+      serviceAccountName: agentiva-service
+      automountServiceAccountToken: false
+
+      # Satisfies the restricted Pod Security Standard enforced on the
+      # namespace. The images already run as a non-root user; this makes it a
+      # hard requirement that admission checks.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 64198
+        fsGroup: 64198
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Long enough for in-flight requests and message handlers to finish and
+      # acknowledge. Cutting a handler off mid-work produces a redelivery that
+      # the inbox then has to de-duplicate.
+      terminationGracePeriodSeconds: 45
+
+      containers:
+        - name: risk-service
+          image: ghcr.io/agentiva/risk-service:0.1.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: agentiva-common
+
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: POSTGRES_PASSWORD
+            - name: TIMESCALE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: TIMESCALE_PASSWORD
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: REDIS_PASSWORD
+            - name: RabbitMq__UserName
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_USER
+            - name: RabbitMq__Password
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_PASSWORD
+            - name: Jwt__SigningKey
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: JWT_SIGNING_KEY
+            - name: ConnectionStrings__Postgres
+              value: >-
+                Host=postgres.agentiva.svc.cluster.local;Port=5432;Database=risk_db;
+                Username=agentiva;Password=$(POSTGRES_PASSWORD)
+            - name: ConnectionStrings__Redis
+              value: redis.agentiva.svc.cluster.local:6379,password=$(REDIS_PASSWORD),abortConnect=false
+
+          # --- Probes ------------------------------------------------------
+          #
+          # Liveness hits /alive, which is process-local. Readiness hits
+          # /ready, which includes dependencies. The distinction matters: a
+          # liveness probe that checked the database would have the kubelet
+          # kill and restart every replica during a database blip, turning a
+          # recoverable outage into a cluster-wide crash loop.
+          livenessProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Gives the service time to apply its migrations before the liveness
+          # probe can kill it.
+          startupProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              # No CPU limit, deliberately. A CPU limit causes CFS throttling,
+              # which on a latency-sensitive trading path produces multi-
+              # hundred-millisecond stalls that look like network problems.
+              # The request guarantees a share; the memory limit is the hard
+              # bound that matters.
+              memory: 512Mi
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            # The root filesystem is read-only, so the runtime needs a writable
+            # temp directory.
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: risk-service
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: risk-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: risk-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: risk-service
+  namespace: agentiva
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: risk-service
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      # Slow, and over a long window. Rapid scale-down on a trading platform
+      # discards a replica that was mid-handler and causes an avoidable
+      # redelivery.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: risk-service
+  namespace: agentiva
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: risk-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: execution-service
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: execution-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  replicas: 1
+      # One replica, and a RollingUpdate that never runs two at once.
+      #
+      # The execution service is the only component that can place an order.
+      # Two replicas processing the same approved intent concurrently is the
+      # duplicate-order scenario the whole idempotency design exists to
+      # prevent, and defence in depth means not relying on it alone.
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: execution-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+    app.kubernetes.io/name: execution-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+    spec:
+      serviceAccountName: agentiva-execution
+      automountServiceAccountToken: false
+
+      # Satisfies the restricted Pod Security Standard enforced on the
+      # namespace. The images already run as a non-root user; this makes it a
+      # hard requirement that admission checks.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 64198
+        fsGroup: 64198
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Long enough for in-flight requests and message handlers to finish and
+      # acknowledge. Cutting a handler off mid-work produces a redelivery that
+      # the inbox then has to de-duplicate.
+      terminationGracePeriodSeconds: 45
+
+      containers:
+        - name: execution-service
+          image: ghcr.io/agentiva/execution-service:0.1.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: agentiva-common
+
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: POSTGRES_PASSWORD
+            - name: TIMESCALE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: TIMESCALE_PASSWORD
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: REDIS_PASSWORD
+            - name: RabbitMq__UserName
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_USER
+            - name: RabbitMq__Password
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_PASSWORD
+            - name: Jwt__SigningKey
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: JWT_SIGNING_KEY
+            - name: ConnectionStrings__Postgres
+              value: >-
+                Host=postgres.agentiva.svc.cluster.local;Port=5432;Database=execution_db;
+                Username=agentiva;Password=$(POSTGRES_PASSWORD)
+            - name: ConnectionStrings__Redis
+              value: redis.agentiva.svc.cluster.local:6379,password=$(REDIS_PASSWORD),abortConnect=false
+            # ---------------------------------------------------------------
+            # Exchange credentials. Mounted by THIS deployment only.
+            #
+            # No other pod in the namespace references this secret, and the
+            # RBAC Role permitting it names only the agentiva-execution
+            # service account. The AI agent platform cannot read it, cannot
+            # reach this service, and has no egress to an exchange.
+            # ---------------------------------------------------------------
+            - name: Binance__ApiKey
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-exchange-credentials
+                  key: BINANCE_API_KEY
+            - name: Binance__ApiSecret
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-exchange-credentials
+                  key: BINANCE_API_SECRET
+
+          # --- Probes ------------------------------------------------------
+          #
+          # Liveness hits /alive, which is process-local. Readiness hits
+          # /ready, which includes dependencies. The distinction matters: a
+          # liveness probe that checked the database would have the kubelet
+          # kill and restart every replica during a database blip, turning a
+          # recoverable outage into a cluster-wide crash loop.
+          livenessProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Gives the service time to apply its migrations before the liveness
+          # probe can kill it.
+          startupProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              # No CPU limit, deliberately. A CPU limit causes CFS throttling,
+              # which on a latency-sensitive trading path produces multi-
+              # hundred-millisecond stalls that look like network problems.
+              # The request guarantees a share; the memory limit is the hard
+              # bound that matters.
+              memory: 512Mi
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            # The root filesystem is read-only, so the runtime needs a writable
+            # temp directory.
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: execution-service
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: execution-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: execution-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: execution-service
+  namespace: agentiva
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: execution-service
+  minReplicas: 1
+  maxReplicas: 2
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      # Slow, and over a long window. Rapid scale-down on a trading platform
+      # discards a replica that was mid-handler and causes an avoidable
+      # redelivery.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: execution-service
+  namespace: agentiva
+  annotations:
+    agentiva.io/note: >-
+      maxUnavailable 0 on a single-replica service: a voluntary disruption such
+      as a node drain must be blocked rather than take the service down. Drain
+      requires an operator to scale up first or to accept the outage explicitly.
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: execution-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portfolio-service
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: portfolio-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: portfolio-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+    app.kubernetes.io/name: portfolio-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+    spec:
+      serviceAccountName: agentiva-service
+      automountServiceAccountToken: false
+
+      # Satisfies the restricted Pod Security Standard enforced on the
+      # namespace. The images already run as a non-root user; this makes it a
+      # hard requirement that admission checks.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 64198
+        fsGroup: 64198
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Long enough for in-flight requests and message handlers to finish and
+      # acknowledge. Cutting a handler off mid-work produces a redelivery that
+      # the inbox then has to de-duplicate.
+      terminationGracePeriodSeconds: 45
+
+      containers:
+        - name: portfolio-service
+          image: ghcr.io/agentiva/portfolio-service:0.1.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: agentiva-common
+
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: POSTGRES_PASSWORD
+            - name: TIMESCALE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: TIMESCALE_PASSWORD
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: REDIS_PASSWORD
+            - name: RabbitMq__UserName
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_USER
+            - name: RabbitMq__Password
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_PASSWORD
+            - name: Jwt__SigningKey
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: JWT_SIGNING_KEY
+            - name: ConnectionStrings__Postgres
+              value: >-
+                Host=postgres.agentiva.svc.cluster.local;Port=5432;Database=portfolio_db;
+                Username=agentiva;Password=$(POSTGRES_PASSWORD)
+            - name: ConnectionStrings__Redis
+              value: redis.agentiva.svc.cluster.local:6379,password=$(REDIS_PASSWORD),abortConnect=false
+
+          # --- Probes ------------------------------------------------------
+          #
+          # Liveness hits /alive, which is process-local. Readiness hits
+          # /ready, which includes dependencies. The distinction matters: a
+          # liveness probe that checked the database would have the kubelet
+          # kill and restart every replica during a database blip, turning a
+          # recoverable outage into a cluster-wide crash loop.
+          livenessProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Gives the service time to apply its migrations before the liveness
+          # probe can kill it.
+          startupProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              # No CPU limit, deliberately. A CPU limit causes CFS throttling,
+              # which on a latency-sensitive trading path produces multi-
+              # hundred-millisecond stalls that look like network problems.
+              # The request guarantees a share; the memory limit is the hard
+              # bound that matters.
+              memory: 512Mi
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            # The root filesystem is read-only, so the runtime needs a writable
+            # temp directory.
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: portfolio-service
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: portfolio-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: portfolio-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: portfolio-service
+  namespace: agentiva
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: portfolio-service
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      # Slow, and over a long window. Rapid scale-down on a trading platform
+      # discards a replica that was mid-handler and causes an avoidable
+      # redelivery.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: portfolio-service
+  namespace: agentiva
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: portfolio-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: strategy-service
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: strategy-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: strategy-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+    app.kubernetes.io/name: strategy-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+    spec:
+      serviceAccountName: agentiva-service
+      automountServiceAccountToken: false
+
+      # Satisfies the restricted Pod Security Standard enforced on the
+      # namespace. The images already run as a non-root user; this makes it a
+      # hard requirement that admission checks.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 64198
+        fsGroup: 64198
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Long enough for in-flight requests and message handlers to finish and
+      # acknowledge. Cutting a handler off mid-work produces a redelivery that
+      # the inbox then has to de-duplicate.
+      terminationGracePeriodSeconds: 45
+
+      containers:
+        - name: strategy-service
+          image: ghcr.io/agentiva/strategy-service:0.1.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: agentiva-common
+
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: POSTGRES_PASSWORD
+            - name: TIMESCALE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: TIMESCALE_PASSWORD
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: REDIS_PASSWORD
+            - name: RabbitMq__UserName
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_USER
+            - name: RabbitMq__Password
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_PASSWORD
+            - name: Jwt__SigningKey
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: JWT_SIGNING_KEY
+            - name: ConnectionStrings__Postgres
+              value: >-
+                Host=postgres.agentiva.svc.cluster.local;Port=5432;Database=strategy_db;
+                Username=agentiva;Password=$(POSTGRES_PASSWORD)
+            - name: ConnectionStrings__Redis
+              value: redis.agentiva.svc.cluster.local:6379,password=$(REDIS_PASSWORD),abortConnect=false
+
+          # --- Probes ------------------------------------------------------
+          #
+          # Liveness hits /alive, which is process-local. Readiness hits
+          # /ready, which includes dependencies. The distinction matters: a
+          # liveness probe that checked the database would have the kubelet
+          # kill and restart every replica during a database blip, turning a
+          # recoverable outage into a cluster-wide crash loop.
+          livenessProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Gives the service time to apply its migrations before the liveness
+          # probe can kill it.
+          startupProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              # No CPU limit, deliberately. A CPU limit causes CFS throttling,
+              # which on a latency-sensitive trading path produces multi-
+              # hundred-millisecond stalls that look like network problems.
+              # The request guarantees a share; the memory limit is the hard
+              # bound that matters.
+              memory: 512Mi
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            # The root filesystem is read-only, so the runtime needs a writable
+            # temp directory.
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: strategy-service
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: strategy-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: strategy-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: strategy-service
+  namespace: agentiva
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: strategy-service
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      # Slow, and over a long window. Rapid scale-down on a trading platform
+      # discards a replica that was mid-handler and causes an avoidable
+      # redelivery.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: strategy-service
+  namespace: agentiva
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: strategy-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backtesting-service
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: backtesting-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: backtesting-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+    app.kubernetes.io/name: backtesting-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+    spec:
+      serviceAccountName: agentiva-service
+      automountServiceAccountToken: false
+
+      # Satisfies the restricted Pod Security Standard enforced on the
+      # namespace. The images already run as a non-root user; this makes it a
+      # hard requirement that admission checks.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 64198
+        fsGroup: 64198
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Long enough for in-flight requests and message handlers to finish and
+      # acknowledge. Cutting a handler off mid-work produces a redelivery that
+      # the inbox then has to de-duplicate.
+      terminationGracePeriodSeconds: 45
+
+      containers:
+        - name: backtesting-service
+          image: ghcr.io/agentiva/backtesting-service:0.1.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: agentiva-common
+
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: POSTGRES_PASSWORD
+            - name: TIMESCALE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: TIMESCALE_PASSWORD
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: REDIS_PASSWORD
+            - name: RabbitMq__UserName
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_USER
+            - name: RabbitMq__Password
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_PASSWORD
+            - name: Jwt__SigningKey
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: JWT_SIGNING_KEY
+            - name: ConnectionStrings__Postgres
+              value: >-
+                Host=postgres.agentiva.svc.cluster.local;Port=5432;Database=backtesting_db;
+                Username=agentiva;Password=$(POSTGRES_PASSWORD)
+            - name: ConnectionStrings__Redis
+              value: redis.agentiva.svc.cluster.local:6379,password=$(REDIS_PASSWORD),abortConnect=false
+
+          # --- Probes ------------------------------------------------------
+          #
+          # Liveness hits /alive, which is process-local. Readiness hits
+          # /ready, which includes dependencies. The distinction matters: a
+          # liveness probe that checked the database would have the kubelet
+          # kill and restart every replica during a database blip, turning a
+          # recoverable outage into a cluster-wide crash loop.
+          livenessProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Gives the service time to apply its migrations before the liveness
+          # probe can kill it.
+          startupProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              # No CPU limit, deliberately. A CPU limit causes CFS throttling,
+              # which on a latency-sensitive trading path produces multi-
+              # hundred-millisecond stalls that look like network problems.
+              # The request guarantees a share; the memory limit is the hard
+              # bound that matters.
+              memory: 512Mi
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            # The root filesystem is read-only, so the runtime needs a writable
+            # temp directory.
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backtesting-service
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: backtesting-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: backtesting-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: backtesting-service
+  namespace: agentiva
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: backtesting-service
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      # Slow, and over a long window. Rapid scale-down on a trading platform
+      # discards a replica that was mid-handler and causes an avoidable
+      # redelivery.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backtesting-service
+  namespace: agentiva
+  annotations:
+    agentiva.io/note: >-
+      maxUnavailable 0 on a single-replica service: a voluntary disruption such
+      as a node drain must be blocked rather than take the service down. Drain
+      requires an operator to scale up first or to accept the outage explicitly.
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: backtesting-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reconciliation-service
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: reconciliation-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  replicas: 1
+      # Deliberately a single replica.
+      #
+      # This service holds a stateful, non-shardable position: the market data
+      # service owns one exchange WebSocket subscription per symbol, and two
+      # replicas would both subscribe and double-publish every tick. The
+      # reconciliation service compares platform state against the exchange,
+      # and two concurrent comparisons would race each other to disable
+      # trading. Both become horizontally scalable once they use a distributed
+      # lease; until then, scaling them out is a correctness bug rather than a
+      # capacity improvement.
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: reconciliation-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+    app.kubernetes.io/name: reconciliation-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+    spec:
+      serviceAccountName: agentiva-service
+      automountServiceAccountToken: false
+
+      # Satisfies the restricted Pod Security Standard enforced on the
+      # namespace. The images already run as a non-root user; this makes it a
+      # hard requirement that admission checks.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 64198
+        fsGroup: 64198
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Long enough for in-flight requests and message handlers to finish and
+      # acknowledge. Cutting a handler off mid-work produces a redelivery that
+      # the inbox then has to de-duplicate.
+      terminationGracePeriodSeconds: 45
+
+      containers:
+        - name: reconciliation-service
+          image: ghcr.io/agentiva/reconciliation-service:0.1.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: agentiva-common
+
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: POSTGRES_PASSWORD
+            - name: TIMESCALE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: TIMESCALE_PASSWORD
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: REDIS_PASSWORD
+            - name: RabbitMq__UserName
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_USER
+            - name: RabbitMq__Password
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_PASSWORD
+            - name: Jwt__SigningKey
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: JWT_SIGNING_KEY
+            - name: ConnectionStrings__Postgres
+              value: >-
+                Host=postgres.agentiva.svc.cluster.local;Port=5432;Database=reconciliation_db;
+                Username=agentiva;Password=$(POSTGRES_PASSWORD)
+            - name: ConnectionStrings__Redis
+              value: redis.agentiva.svc.cluster.local:6379,password=$(REDIS_PASSWORD),abortConnect=false
+
+          # --- Probes ------------------------------------------------------
+          #
+          # Liveness hits /alive, which is process-local. Readiness hits
+          # /ready, which includes dependencies. The distinction matters: a
+          # liveness probe that checked the database would have the kubelet
+          # kill and restart every replica during a database blip, turning a
+          # recoverable outage into a cluster-wide crash loop.
+          livenessProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Gives the service time to apply its migrations before the liveness
+          # probe can kill it.
+          startupProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              # No CPU limit, deliberately. A CPU limit causes CFS throttling,
+              # which on a latency-sensitive trading path produces multi-
+              # hundred-millisecond stalls that look like network problems.
+              # The request guarantees a share; the memory limit is the hard
+              # bound that matters.
+              memory: 512Mi
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            # The root filesystem is read-only, so the runtime needs a writable
+            # temp directory.
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reconciliation-service
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: reconciliation-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: reconciliation-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: reconciliation-service
+  namespace: agentiva
+  annotations:
+    agentiva.io/note: >-
+      maxUnavailable 0 on a single-replica service: a voluntary disruption such
+      as a node drain must be blocked rather than take the service down. Drain
+      requires an operator to scale up first or to accept the outage explicitly.
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: reconciliation-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: notification-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: notification-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+    app.kubernetes.io/name: notification-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+    spec:
+      serviceAccountName: agentiva-service
+      automountServiceAccountToken: false
+
+      # Satisfies the restricted Pod Security Standard enforced on the
+      # namespace. The images already run as a non-root user; this makes it a
+      # hard requirement that admission checks.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 64198
+        fsGroup: 64198
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Long enough for in-flight requests and message handlers to finish and
+      # acknowledge. Cutting a handler off mid-work produces a redelivery that
+      # the inbox then has to de-duplicate.
+      terminationGracePeriodSeconds: 45
+
+      containers:
+        - name: notification-service
+          image: ghcr.io/agentiva/notification-service:0.1.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: agentiva-common
+
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: POSTGRES_PASSWORD
+            - name: TIMESCALE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: TIMESCALE_PASSWORD
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: REDIS_PASSWORD
+            - name: RabbitMq__UserName
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_USER
+            - name: RabbitMq__Password
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_PASSWORD
+            - name: Jwt__SigningKey
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: JWT_SIGNING_KEY
+            - name: ConnectionStrings__Postgres
+              value: >-
+                Host=postgres.agentiva.svc.cluster.local;Port=5432;Database=notification_db;
+                Username=agentiva;Password=$(POSTGRES_PASSWORD)
+            - name: ConnectionStrings__Redis
+              value: redis.agentiva.svc.cluster.local:6379,password=$(REDIS_PASSWORD),abortConnect=false
+
+          # --- Probes ------------------------------------------------------
+          #
+          # Liveness hits /alive, which is process-local. Readiness hits
+          # /ready, which includes dependencies. The distinction matters: a
+          # liveness probe that checked the database would have the kubelet
+          # kill and restart every replica during a database blip, turning a
+          # recoverable outage into a cluster-wide crash loop.
+          livenessProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Gives the service time to apply its migrations before the liveness
+          # probe can kill it.
+          startupProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              # No CPU limit, deliberately. A CPU limit causes CFS throttling,
+              # which on a latency-sensitive trading path produces multi-
+              # hundred-millisecond stalls that look like network problems.
+              # The request guarantees a share; the memory limit is the hard
+              # bound that matters.
+              memory: 512Mi
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            # The root filesystem is read-only, so the runtime needs a writable
+            # temp directory.
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-service
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: notification-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: notification-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: notification-service
+  namespace: agentiva
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: notification-service
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      # Slow, and over a long window. Rapid scale-down on a trading platform
+      # discards a replica that was mid-handler and causes an avoidable
+      # redelivery.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: notification-service
+  namespace: agentiva
+  annotations:
+    agentiva.io/note: >-
+      maxUnavailable 0 on a single-replica service: a voluntary disruption such
+      as a node drain must be blocked rather than take the service down. Drain
+      requires an operator to scale up first or to accept the outage explicitly.
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: notification-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audit-service
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: audit-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: audit-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+    app.kubernetes.io/name: audit-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+    spec:
+      serviceAccountName: agentiva-service
+      automountServiceAccountToken: false
+
+      # Satisfies the restricted Pod Security Standard enforced on the
+      # namespace. The images already run as a non-root user; this makes it a
+      # hard requirement that admission checks.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 64198
+        fsGroup: 64198
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Long enough for in-flight requests and message handlers to finish and
+      # acknowledge. Cutting a handler off mid-work produces a redelivery that
+      # the inbox then has to de-duplicate.
+      terminationGracePeriodSeconds: 45
+
+      containers:
+        - name: audit-service
+          image: ghcr.io/agentiva/audit-service:0.1.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: agentiva-common
+
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: POSTGRES_PASSWORD
+            - name: TIMESCALE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: TIMESCALE_PASSWORD
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: REDIS_PASSWORD
+            - name: RabbitMq__UserName
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_USER
+            - name: RabbitMq__Password
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_PASSWORD
+            - name: Jwt__SigningKey
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: JWT_SIGNING_KEY
+            - name: ConnectionStrings__Postgres
+              value: >-
+                Host=postgres.agentiva.svc.cluster.local;Port=5432;Database=audit_db;
+                Username=agentiva;Password=$(POSTGRES_PASSWORD)
+            - name: ConnectionStrings__Redis
+              value: redis.agentiva.svc.cluster.local:6379,password=$(REDIS_PASSWORD),abortConnect=false
+
+          # --- Probes ------------------------------------------------------
+          #
+          # Liveness hits /alive, which is process-local. Readiness hits
+          # /ready, which includes dependencies. The distinction matters: a
+          # liveness probe that checked the database would have the kubelet
+          # kill and restart every replica during a database blip, turning a
+          # recoverable outage into a cluster-wide crash loop.
+          livenessProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Gives the service time to apply its migrations before the liveness
+          # probe can kill it.
+          startupProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              # No CPU limit, deliberately. A CPU limit causes CFS throttling,
+              # which on a latency-sensitive trading path produces multi-
+              # hundred-millisecond stalls that look like network problems.
+              # The request guarantees a share; the memory limit is the hard
+              # bound that matters.
+              memory: 512Mi
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            # The root filesystem is read-only, so the runtime needs a writable
+            # temp directory.
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: audit-service
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: audit-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: audit-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: audit-service
+  namespace: agentiva
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: audit-service
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      # Slow, and over a long window. Rapid scale-down on a trading platform
+      # discards a replica that was mid-handler and causes an avoidable
+      # redelivery.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: audit-service
+  namespace: agentiva
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: audit-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: configuration-service
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: configuration-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: configuration-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+    app.kubernetes.io/name: configuration-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+    spec:
+      serviceAccountName: agentiva-service
+      automountServiceAccountToken: false
+
+      # Satisfies the restricted Pod Security Standard enforced on the
+      # namespace. The images already run as a non-root user; this makes it a
+      # hard requirement that admission checks.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 64198
+        fsGroup: 64198
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Long enough for in-flight requests and message handlers to finish and
+      # acknowledge. Cutting a handler off mid-work produces a redelivery that
+      # the inbox then has to de-duplicate.
+      terminationGracePeriodSeconds: 45
+
+      containers:
+        - name: configuration-service
+          image: ghcr.io/agentiva/configuration-service:0.1.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: agentiva-common
+
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: POSTGRES_PASSWORD
+            - name: TIMESCALE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: TIMESCALE_PASSWORD
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: REDIS_PASSWORD
+            - name: RabbitMq__UserName
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_USER
+            - name: RabbitMq__Password
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: RABBITMQ_PASSWORD
+            - name: Jwt__SigningKey
+              valueFrom:
+                secretKeyRef:
+                  name: agentiva-infrastructure
+                  key: JWT_SIGNING_KEY
+            - name: ConnectionStrings__Postgres
+              value: >-
+                Host=postgres.agentiva.svc.cluster.local;Port=5432;Database=configuration_db;
+                Username=agentiva;Password=$(POSTGRES_PASSWORD)
+            - name: ConnectionStrings__Redis
+              value: redis.agentiva.svc.cluster.local:6379,password=$(REDIS_PASSWORD),abortConnect=false
+
+          # --- Probes ------------------------------------------------------
+          #
+          # Liveness hits /alive, which is process-local. Readiness hits
+          # /ready, which includes dependencies. The distinction matters: a
+          # liveness probe that checked the database would have the kubelet
+          # kill and restart every replica during a database blip, turning a
+          # recoverable outage into a cluster-wide crash loop.
+          livenessProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Gives the service time to apply its migrations before the liveness
+          # probe can kill it.
+          startupProbe:
+            httpGet:
+              path: /alive
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              # No CPU limit, deliberately. A CPU limit causes CFS throttling,
+              # which on a latency-sensitive trading path produces multi-
+              # hundred-millisecond stalls that look like network problems.
+              # The request guarantees a share; the memory limit is the hard
+              # bound that matters.
+              memory: 512Mi
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            # The root filesystem is read-only, so the runtime needs a writable
+            # temp directory.
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: configuration-service
+  namespace: agentiva
+  labels:
+    app.kubernetes.io/name: configuration-service
+    app.kubernetes.io/part-of: agentiva
+    agentiva.io/tier: service
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: configuration-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: configuration-service
+  namespace: agentiva
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: configuration-service
+  minReplicas: 1
+  maxReplicas: 2
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      # Slow, and over a long window. Rapid scale-down on a trading platform
+      # discards a replica that was mid-handler and causes an avoidable
+      # redelivery.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: configuration-service
+  namespace: agentiva
+  annotations:
+    agentiva.io/note: >-
+      maxUnavailable 0 on a single-replica service: a voluntary disruption such
+      as a node drain must be blocked rather than take the service down. Drain
+      requires an operator to scale up first or to accept the outage explicitly.
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: configuration-service

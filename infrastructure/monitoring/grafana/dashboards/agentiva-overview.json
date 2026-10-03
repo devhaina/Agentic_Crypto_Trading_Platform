@@ -1,0 +1,712 @@
+{
+  "uid": "agentiva-overview",
+  "title": "Agentiva \u2014 Platform Overview",
+  "tags": [
+    "agentiva",
+    "trading"
+  ],
+  "timezone": "utc",
+  "editable": true,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "description": "Operational overview of the Agentiva trading platform. Panels are ordered by the questions an operator asks during an incident: is trading enabled, is the exchange reachable, is the risk gate behaving, are orders completing, and does internal state still match the exchange.",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Kill switch",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agentiva-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(agentiva_kill_switch_engaged)",
+          "legendFormat": "engaged",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "agentiva-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "description": "1 means no new orders are being admitted anywhere on the platform.",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value"
+      }
+    },
+    {
+      "id": 2,
+      "title": "Exchange connection",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agentiva-prometheus"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "min(agentiva_exchange_connection_status)",
+          "legendFormat": "connected",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "agentiva-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "description": "0 means market data is not arriving and orders cannot be submitted.",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value"
+      }
+    },
+    {
+      "id": 3,
+      "title": "Portfolio value",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agentiva-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(agentiva_portfolio_value)",
+          "legendFormat": "value",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "agentiva-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "description": "Cash plus marked positions, in the quote asset.",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value"
+      }
+    },
+    {
+      "id": 4,
+      "title": "Daily P&L",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agentiva-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(agentiva_daily_pnl)",
+          "legendFormat": "pnl",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "agentiva-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "description": "Realised plus unrealised for the current UTC trading day.",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value"
+      }
+    },
+    {
+      "id": 5,
+      "title": "Drawdown %",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agentiva-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(agentiva_drawdown_percent)",
+          "legendFormat": "drawdown",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "agentiva-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "description": "Peak-to-trough decline from the high-water mark. The default policy stops trading at 2%.",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value"
+      }
+    },
+    {
+      "id": 6,
+      "title": "Unpublished outbox rows",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agentiva-prometheus"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(agentiva_outbox_pending)",
+          "legendFormat": "pending",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "agentiva-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "description": "A rising value means domain events are not reaching consumers, so downstream services are working from stale state.",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value"
+      }
+    },
+    {
+      "id": 10,
+      "title": "Risk decisions per minute",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agentiva-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(agentiva_risk_checks_total[5m])) by (decision) * 60",
+          "legendFormat": "{{decision}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "agentiva-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "description": "Approvals and rejections. A rejection is the system working, not a fault."
+    },
+    {
+      "id": 11,
+      "title": "Rejections by failing check",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agentiva-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(agentiva_risk_rejections_total[15m])) by (check) * 60",
+          "legendFormat": "{{check}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "agentiva-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "description": "Which limit is binding. A sustained spike in one check usually means a strategy or agent is proposing trades that cannot pass."
+    },
+    {
+      "id": 20,
+      "title": "Orders per minute",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agentiva-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 11,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(agentiva_orders_total[5m])) by (symbol) * 60",
+          "legendFormat": "{{symbol}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "agentiva-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 21,
+      "title": "Order outcomes per minute",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agentiva-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 11,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(agentiva_orders_filled_total[5m])) * 60",
+          "legendFormat": "filled",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "agentiva-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 22,
+      "title": "Indeterminate orders",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agentiva-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 11,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(agentiva_orders_indeterminate_total[1h]))",
+          "legendFormat": "indeterminate",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "agentiva-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "description": "Orders whose exchange outcome could not be established. Any non-zero value needs manual reconciliation \u2014 never retry one blind."
+    },
+    {
+      "id": 30,
+      "title": "Execution latency (p50 / p95 / p99)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agentiva-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum(rate(agentiva_execution_latency_ms_bucket[5m])) by (le))",
+          "legendFormat": "p95",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "agentiva-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "description": "Round trip to the exchange. Above roughly two seconds, real slippage exceeds the risk model's allowance."
+    },
+    {
+      "id": 31,
+      "title": "Market data latency (p95)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agentiva-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 18,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum(rate(agentiva_market_data_latency_ms_bucket[5m])) by (le))",
+          "legendFormat": "p95",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "agentiva-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "description": "Delay between the exchange's event timestamp and local receipt."
+    },
+    {
+      "id": 40,
+      "title": "Agent runs per minute",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agentiva-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 25,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(agentiva_agent_runs_total[5m])) by (agent) * 60",
+          "legendFormat": "{{agent}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "agentiva-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 41,
+      "title": "Agent failure ratio",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agentiva-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 25,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(agentiva_agent_failures_total[15m])) / clamp_min(sum(rate(agentiva_agent_runs_total[15m])), 0.0001)",
+          "legendFormat": "failure ratio",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "agentiva-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "description": "A failed agent run produces no proposal, so the platform stays safe \u2014 but the AI analysis is unavailable."
+    },
+    {
+      "id": 42,
+      "title": "Agent run duration (p95)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agentiva-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 25,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum(rate(agentiva_agent_duration_ms_bucket[5m])) by (le))",
+          "legendFormat": "p95",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "agentiva-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 50,
+      "title": "Reconciliation failures (1h)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agentiva-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(agentiva_reconciliation_failures_total[1h]))",
+          "legendFormat": "failures",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "agentiva-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "description": "Internal state disagreeing with the exchange. Every risk calculation downstream of a mismatch is suspect.",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value"
+      }
+    },
+    {
+      "id": 51,
+      "title": "Market data staleness events (1h)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agentiva-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 32,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(agentiva_market_data_stale_total[1h]))",
+          "legendFormat": "stale",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "agentiva-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value"
+      }
+    },
+    {
+      "id": 52,
+      "title": "Open positions",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agentiva-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 32,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(agentiva_open_positions)",
+          "legendFormat": "positions",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "agentiva-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value"
+      }
+    }
+  ]
+}

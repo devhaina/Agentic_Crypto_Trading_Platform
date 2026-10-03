@@ -1,0 +1,63 @@
+# =============================================================================
+# Agentiva — ingress
+#
+# Two hosts: the dashboard, and the API gateway. Nothing else is exposed, and
+# the network policies ensure nothing else can be reached from outside the
+# namespace even if an ingress rule were added by mistake.
+# =============================================================================
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: agentiva
+  namespace: agentiva
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-production
+
+    # TLS is not optional: the dashboard sends bearer tokens and displays
+    # balances.
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+
+    # A second rate limit at the edge, independent of the gateway's own. The
+    # gateway's limiter protects the services; this one protects the gateway.
+    nginx.ingress.kubernetes.io/limit-rps: "50"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "3"
+
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - agentiva.example.com
+        - api.agentiva.example.com
+      secretName: agentiva-tls
+  rules:
+    - host: agentiva.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: dashboard
+                port:
+                  name: http
+
+    - host: api.agentiva.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api-gateway
+                port:
+                  name: http

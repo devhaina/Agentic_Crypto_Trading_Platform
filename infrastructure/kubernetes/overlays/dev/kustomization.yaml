@@ -1,0 +1,37 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: agentiva-dev
+
+namespace: agentiva-dev
+
+resources:
+  - ../../base
+
+nameSuffix: ""
+
+# A dev cluster runs one replica of everything: it exists to verify that the
+# manifests apply and the services start, not to handle load.
+replicas:
+  - { name: api-gateway, count: 1 }
+  - { name: identity-service, count: 1 }
+  - { name: trading-service, count: 1 }
+  - { name: risk-service, count: 1 }
+  - { name: portfolio-service, count: 1 }
+  - { name: strategy-service, count: 1 }
+  - { name: audit-service, count: 1 }
+  - { name: agent-platform, count: 1 }
+  - { name: dashboard, count: 1 }
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: agentiva-common
+    patch: |-
+      - op: replace
+        path: /data/Serilog__MinimumLevel
+        value: Debug
+      - op: replace
+        path: /data/ASPNETCORE_ENVIRONMENT
+        value: Development

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Agentiva.Contracts.Events</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <!--
+    Intentionally dependency-free apart from Common. These contracts are shared
+    by every publisher and consumer, so a dependency added here propagates to
+    the entire estate. An architecture test asserts this project references
+    nothing from the service or infrastructure layers.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\building-blocks\Agentiva.BuildingBlocks.Common\Agentiva.BuildingBlocks.Common.csproj" />
+  </ItemGroup>
+
+</Project>
