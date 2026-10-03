@@ -39,7 +39,7 @@ COPY --from=build /app/dist/agentiva-dashboard/browser /usr/share/nginx/html
 # Listens on 8080 rather than 80 so the process needs no privileged port and
 # can run as the unprivileged nginx user.
 RUN sed -i 's|^user .*|# user directive removed: runs as the nginx user|' /etc/nginx/nginx.conf \
-    && sed -i 's|/var/run/nginx.pid|/tmp/nginx.pid|' /etc/nginx/nginx.conf \
+    && sed -i 's|/run/nginx.pid|/tmp/nginx.pid|' /etc/nginx/nginx.conf \
     && chown -R nginx:nginx /usr/share/nginx/html /var/cache/nginx \
     && chmod +x /usr/local/bin/docker-entrypoint.sh
 
