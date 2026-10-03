@@ -6,6 +6,7 @@ from typing import Any
 
 from agentiva_agents.agents.base import Agent
 from agentiva_agents.models.proposals import TradingProposal
+from agentiva_agents.prompts.boundaries import compose
 
 
 class StrategyAgent(Agent[TradingProposal]):
@@ -30,7 +31,11 @@ class StrategyAgent(Agent[TradingProposal]):
 
     @property
     def system_prompt(self) -> str:
-        return (
+        # include_sizing_notice=False: this prompt's own "What you do not
+        # decide" section already covers sizing authority in more specific
+        # detail than the generic boundary text would, so the generic notice
+        # would only repeat it.
+        return compose(
             "You are the strategy coordinator for a cryptocurrency trading platform.\n\n"
             "Combine the analyses supplied by the market, technical, sentiment and portfolio "
             "agents into at most one trading proposal for the symbol.\n\n"
@@ -55,9 +60,8 @@ class StrategyAgent(Agent[TradingProposal]):
             "stop placed for sizing reasons leaves the real risk unprotected.\n\n"
             "For a BUY the stop must be below the entry and the target above it; for a SELL the "
             "reverse. An inverted stop is rejected.\n\n"
-            "Never assert that a trade will be profitable, and never promise a return. Set "
-            "confidence to reflect the weight of evidence; a figure below the platform's minimum "
-            "will correctly prevent the trade."
+            "Set confidence to reflect the weight of evidence, not enthusiasm; a figure below "
+            "the platform's minimum will correctly prevent the trade."
         )
 
     def user_prompt(self, symbol: str, timeframe: str) -> str:
