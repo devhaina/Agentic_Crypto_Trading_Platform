@@ -140,11 +140,50 @@ Implemented in order; each phase builds on what the last one shipped. See
   value an operator can move in the meantime, the same shape as the kill
   switch.
 
-## Phase 5 — Trading & Execution
+## Phase 5 — Trading & Execution (delivered)
 
-Execution Service: Binance REST client, request signing, `IExchangeExecution`
-abstraction with a `BinanceExecutionAdapter`; client-order-id idempotency;
-order lifecycle events; the real duplicate-order check in the Risk Service.
+- `IExchangeExecution` abstraction with two implementations, selected by
+  `IExchangeExecutionResolver` from this service's own `TradingOptions.EffectiveMode`
+  — never trusted from the caller, the same discipline the Risk Service
+  applies to the kill switch. `Backtest` is refused outright (no exchange
+  contact of any kind); `Paper` routes to `SimulatedExchangeExecution`, an
+  instant fill at the caller's own reference price with zero fee; only
+  `Live` (which additionally requires `Trading:AllowLive=true`) reaches
+  `BinanceExecutionAdapter`.
+- `BinanceExecutionAdapter`: a signed Binance Spot REST client
+  (`POST /api/v3/order`, HMAC-SHA256 over the exact query string sent) —
+  the only code path in the platform that holds exchange credentials or
+  contacts a real exchange, enforced by
+  `Only_the_execution_service_references_exchange_credentials`.
+- `Order` aggregate (`Agentiva.Execution.Domain`): the same
+  create-before-external-call discipline as `TradingIntent` — an order is
+  persisted `Created` before the exchange is contacted, so a crash mid-
+  workflow leaves a recoverable row rather than losing the record. State
+  machine: `Created` → `Submitted` → `PartiallyFilled`/`Filled`, or
+  `Rejected` (from `Created` only) / `Unknown` (an indeterminate outcome,
+  typically a timeout — never retried automatically) / `Cancelled`.
+- `ClientOrderIdGenerator`: a deterministic client order id
+  (`AGENTIVA-{symbol}-{day}-{hash}`) derived from the command's own
+  idempotency key rather than a stored sequence counter, so a retry that
+  slipped past the idempotency store is still caught by the exchange
+  rejecting a duplicate `newClientOrderId` — the second, independent line
+  of defence.
+- Order lifecycle events (`contracts/events/.../Orders/OrderEvents.cs`,
+  written in Phase 1): `OrderCreated`, `OrderSubmitted`,
+  `OrderPartiallyFilled`, `OrderFilled`, `OrderCancelled`, `OrderRejected`,
+  `OrderIndeterminate`, published through the transactional outbox exactly
+  like a trading intent's events.
+- The real duplicate-order check: the Trading Service now calls
+  `GET /api/v1/orders/open` before submitting to the Risk Service, so
+  `HasDuplicateOpenOrder` reflects the Execution Service's own order store
+  rather than the Phase 1 hard-coded `false`. An unreachable check fails
+  closed (treated as open, not clear).
+- The Trading Service hands an approved intent straight to the Execution
+  Service (`IExecutionServiceClient`, mirroring `IRiskServiceClient`'s
+  no-automatic-retry discipline) and advances the intent to `Executed` or
+  `Failed` from the synchronous response — see
+  docs/architecture/known-limitations.md for what that does not yet cover
+  (an order left resting on the book).
 
 ## Phase 6 — Portfolio
 

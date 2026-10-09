@@ -27,7 +27,9 @@ public sealed class FinancialSafetyTests
         typeof(MarketData.Domain.Entities.Tick).Assembly,
         typeof(MarketData.Application.Queries.GetTickerQuery).Assembly,
         typeof(Strategy.Domain.Entities.Signal).Assembly,
-        typeof(Strategy.Application.Queries.GetRecentSignalsQuery).Assembly
+        typeof(Strategy.Application.Queries.GetRecentSignalsQuery).Assembly,
+        typeof(Execution.Domain.Orders.Order).Assembly,
+        typeof(Execution.Application.Orders.SubmitOrderCommand).Assembly
     ];
 
     /// <summary>
@@ -156,7 +158,8 @@ public sealed class FinancialSafetyTests
         foreach (var assembly in new[]
                  {
                      typeof(Risk.Application.Evaluations.EvaluateIntentCommand).Assembly,
-                     typeof(Trading.Application.Intents.CreateTradingIntentCommand).Assembly
+                     typeof(Trading.Application.Intents.CreateTradingIntentCommand).Assembly,
+                     typeof(Execution.Application.Orders.SubmitOrderCommand).Assembly
                  })
         {
             foreach (var type in assembly.GetTypes().Where(t => t is { IsAbstract: false, IsInterface: false }))

@@ -77,6 +77,20 @@ public static class TradingInfrastructureExtensions
         // closed instead and the intent is parked as RiskUnavailable. See the
         // remarks on RiskServiceClient.
 
+        // --- Execution Service client ----------------------------------------------
+        var executionUrl = configuration["Services:ExecutionServiceUrl"] ?? "http://execution-service:8080";
+
+        services
+            .AddHttpClient<IExecutionServiceClient, ExecutionServiceClient>(client =>
+            {
+                client.BaseAddress = new Uri(executionUrl);
+                client.Timeout = TimeSpan.FromSeconds(15);
+            });
+
+        // No .AddAgentivaResilience() here either, for the same reason as the
+        // risk gate client: a timed-out order placement may already have
+        // reached the exchange, and an automatic retry risks a second one.
+
         // --- Providers -----------------------------------------------------------
         services.AddScoped<IPaperLedgerStore, PaperLedgerStore>();
 

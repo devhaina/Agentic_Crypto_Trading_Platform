@@ -33,6 +33,7 @@ namespace Agentiva.Trading.Application.Intents;
 public sealed class CreateTradingIntentCommandHandler(
     ITradingIntentRepository intents,
     IRiskServiceClient riskService,
+    IExecutionServiceClient executionService,
     IPortfolioSnapshotProvider portfolio,
     IMarketConditionProvider marketConditions,
     IUnitOfWork unitOfWork,
@@ -120,6 +121,27 @@ public sealed class CreateTradingIntentCommandHandler(
         // --- 3. Gather risk inputs ------------------------------------------------
         var snapshot = await portfolio.GetAsync(symbol.Value, cancellationToken);
 
+        // The real duplicate-order check: ask the Execution Service, which
+        // owns the order store, rather than the Phase 1 hard-coded false. An
+        // unreachable check fails closed — treated as "open" rather than
+        // "clear" — because understating risk input is worse than an
+        // occasional unnecessary rejection; the deterministic client order id
+        // remains the last line of defence regardless.
+        var openOrderCheck = await executionService.HasOpenOrderAsync(
+            symbol.Value, side.ToString().ToUpperInvariant(), cancellationToken);
+
+        if (openOrderCheck.IsFailure)
+        {
+            logger.LogWarning(
+                "Could not reach the Execution Service to check for an open order on {Symbol} {Side}: "
+                + "{Reason}. Treating the duplicate-order check as failed (open) rather than clear.",
+                symbol,
+                side,
+                openOrderCheck.Error);
+        }
+
+        var hasDuplicateOpenOrder = openOrderCheck.IsFailure || openOrderCheck.Value;
+
         var riskRequest = new RiskEvaluationRequestDto(
             TradingIntentId: intent.Id.Value,
             Symbol: symbol.Value,
@@ -132,12 +154,7 @@ public sealed class CreateTradingIntentCommandHandler(
             SymbolVolatilityPercent: conditions.VolatilityPercent,
             MarketDataAgeSeconds: conditions.MarketDataAgeSeconds,
             IsExchangeAvailable: conditions.IsExchangeAvailable,
-
-            // Phase 1 has no open-order store to check against. Reported as
-            // false rather than fabricated; the Execution Service's
-            // deterministic client order id is the actual duplicate defence,
-            // and Phase 5 fills this in properly.
-            HasDuplicateOpenOrder: false);
+            HasDuplicateOpenOrder: hasDuplicateOpenOrder);
 
         // The risk gate's idempotency key is derived from this command's key, so
         // a replay of the whole command replays the same evaluation rather than
@@ -166,23 +183,7 @@ public sealed class CreateTradingIntentCommandHandler(
 
         var outcome = decision.Value;
 
-        if (outcome.IsApproved)
-        {
-            intent.ApproveRisk(
-                RiskCheckId.From(outcome.RiskCheckId),
-                Quantity.Create(outcome.ApprovedQuantity),
-                clock.UtcNow);
-
-            logger.LogInformation(
-                "Intent {TradingIntentId} approved: {ApprovedQuantity} of {RequestedQuantity} requested, "
-                + "notional {Notional}, risk {RiskAmount}.",
-                intent.Id,
-                outcome.ApprovedQuantity,
-                command.Quantity,
-                outcome.ApprovedNotional,
-                outcome.RiskAmount);
-        }
-        else
+        if (!outcome.IsApproved)
         {
             intent.RejectRisk(
                 RiskCheckId.From(outcome.RiskCheckId),
@@ -193,13 +194,87 @@ public sealed class CreateTradingIntentCommandHandler(
                 "Intent {TradingIntentId} rejected by the risk gate: {RejectionCodes}",
                 intent.Id,
                 string.Join(", ", outcome.RejectionCodes));
+
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return Result.Success(ToResponse(intent));
         }
+
+        intent.ApproveRisk(
+            RiskCheckId.From(outcome.RiskCheckId),
+            Quantity.Create(outcome.ApprovedQuantity),
+            clock.UtcNow);
+
+        logger.LogInformation(
+            "Intent {TradingIntentId} approved: {ApprovedQuantity} of {RequestedQuantity} requested, "
+            + "notional {Notional}, risk {RiskAmount}.",
+            intent.Id,
+            outcome.ApprovedQuantity,
+            command.Quantity,
+            outcome.ApprovedNotional,
+            outcome.RiskAmount);
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
-        // Phase 5 hands an approved intent to the Execution Service here. Until
-        // then it stops at RiskApproved, which is a safe terminal state: the
-        // Execution Service does not yet exist to act on it.
+        // --- 5. Hand the approved intent to the Execution Service -----------------
+        var orderRequest = new ExecutionOrderRequestDto(
+            TradingIntentId: intent.Id.Value,
+            RiskCheckId: outcome.RiskCheckId,
+            TradingAccountId: command.TradingAccountId,
+            Symbol: symbol.Value,
+            Side: side.ToString().ToUpperInvariant(),
+            OrderType: "MARKET",
+            Quantity: outcome.ApprovedQuantity,
+            LimitPrice: null,
+            ReferencePrice: outcome.EffectiveEntryPrice);
+
+        var executionIdempotencyKey = $"{command.IdempotencyKey}:order";
+
+        var placement = await executionService.SubmitOrderAsync(
+            orderRequest, executionIdempotencyKey, cancellationToken);
+
+        if (placement.IsFailure)
+        {
+            // The risk gate approved the trade but it could not be handed off.
+            // Failed, not RiskUnavailable: a decision was made, only the
+            // execution step itself did not complete.
+            intent.Fail(placement.Error.ToString(), clock.UtcNow);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+
+            logger.LogError(
+                "Intent {TradingIntentId} was approved but could not be executed: {Reason}",
+                intent.Id,
+                placement.Error);
+
+            return Result.Success(ToResponse(intent));
+        }
+
+        var order = placement.Value;
+        intent.BeginExecution(OrderId.From(order.OrderId), clock.UtcNow);
+
+        if (order.IsFilled)
+        {
+            intent.CompleteExecution(clock.UtcNow);
+        }
+        else if (!order.IsResting)
+        {
+            // Rejected or indeterminate at the exchange. The intent reached
+            // execution but did not result in a position.
+            intent.Fail($"Order {order.OrderId} reached status {order.Status}.", clock.UtcNow);
+        }
+
+        // Else: resting on the book (Submitted/PartiallyFilled). The intent
+        // stays Executing — there is no order-event consumer yet to advance
+        // it to Executed asynchronously; see
+        // docs/architecture/known-limitations.md.
+
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation(
+            "Intent {TradingIntentId} executed as order {OrderId}: {Status}.",
+            intent.Id,
+            order.OrderId,
+            order.Status);
+
         return Result.Success(ToResponse(intent));
     }
 

@@ -20,27 +20,52 @@ unchanged from Phase 1: the exposure, concentration and daily-loss checks in
 the Risk Service cannot meaningfully bind to real trading history, because
 nothing here is derived from real trading history. The risk-per-trade,
 stop/take-profit, and sizing-precision checks are fully real regardless,
-since they do not depend on portfolio state. Genuine portfolio truth needs
-real fills (Execution Service, Phase 5) and real position tracking
-(Portfolio Service, Phase 6).
+since they do not depend on portfolio state. Phase 5 added the real fills
+(Execution Service); genuine portfolio truth still needs real position
+tracking from those fills (Portfolio Service, Phase 6).
 
-## The duplicate-order check is a placeholder
+## The duplicate-order check is real as of Phase 5, with one gap
 
-`CreateTradingIntentCommandHandler` hard-codes `HasDuplicateOpenOrder: false`
-when calling the Risk Service, because there is no order store to check
-against yet — the Execution Service, which owns orders, does not exist until
-Phase 5. The deterministic client-order-id scheme that is the real defence
-against a duplicate exchange order also lands in Phase 5.
+`CreateTradingIntentCommandHandler` now calls the Execution Service's
+`GET /api/v1/orders/open` before submitting to the Risk Service, so
+`HasDuplicateOpenOrder` reflects whatever the order store actually holds
+rather than the Phase 1 hard-coded `false`. An unreachable Execution Service
+fails closed — treated as "open" — rather than defaulting to "clear". The
+deterministic client-order-id scheme (`ClientOrderIdGenerator`, derived from
+the command's own idempotency key) is the second, independent line of
+defence the risk check's remarks describe.
 
-## No *trading* exchange connection exists; Phase 2 adds a public, read-only one
+## A resting order has no path back to the intent that created it
 
-`BINANCE__APIKEY` and `BINANCE__APISECRET` are blank in every committed
-configuration file, and no service holds them except the Execution Service,
-which does not exist until Phase 5 — see `Only_the_execution_service_references_exchange_credentials`
-in the architecture test suite. The Market Data Service's Binance WebSocket
-connections (Phase 2) are unauthenticated public market-data streams, which
-is a different thing: they can observe the tape but cannot place an order or
-read account state.
+`CreateTradingIntentCommandHandler` advances the intent to `Executed` or
+`Failed` synchronously, from the Execution Service's response to the same
+HTTP call that placed the order — correct for the common case, a market
+order that fills immediately. An order that rests on the book unfilled
+(`Submitted`/`PartiallyFilled` — only reachable in `Live` mode, since
+Backtest makes no exchange contact and Paper always fills instantly) leaves
+its intent parked at `Executing` indefinitely: no consumer in the Trading
+Service subscribes to `order.filled`/`order.partiallyFilled` to advance it
+later. `TradingIntentConfiguration`'s row-version comment anticipated this
+consumer; it does not exist yet, and building it is exactly the kind of work
+the Portfolio Service's event consumption (Phase 6) will also need.
+
+## A real exchange connection exists as of Phase 5, gated by trading mode
+
+`BinanceExecutionAdapter` (Execution Service) holds the only Binance API
+key/secret in the platform and is the only code path that places a real
+order — see `Only_the_execution_service_references_exchange_credentials` in
+the architecture test suite. It is reached only when the Execution Service's
+own `TradingOptions.EffectiveMode` resolves to `Live`, which additionally
+requires `Trading:AllowLive=true`; every committed configuration file ships
+`Trading__Mode=PAPER` and blank Binance credentials, so no committed
+environment ever reaches a real exchange by default. Backtest and Paper
+route to `SimulatedExchangeExecution` instead, which fills an order
+instantly at the caller's own reference price with zero fee or slippage —
+deliberately not a backtesting-grade fill model; that belongs to the
+Backtesting Service (Phase 8), which can model it against historical depth.
+The Market Data Service's Binance WebSocket connections (Phase 2) remain a
+separate, unauthenticated public market-data path: they can observe the
+tape but cannot place an order or read account state.
 
 `get_market_data`, `get_candles`, `get_orderbook` and, as of Phase 3,
 `get_indicators` in the AI platform now return real data once the relevant
@@ -92,21 +117,25 @@ unless an operator set `TRADING__KILLSWITCHENABLED=true`). The comment on
 `PlatformStateProvider` has said since Phase 1 that "the durable record of a
 kill switch activation is the audit event"; Phase 4 makes that event real,
 but nothing downstream persists it yet. `PendingOrdersCancelled` and
-`PositionsLiquidated` are also always `false` on activation: there is
-nothing to cancel until the Execution Service exists (Phase 5), and
-automatic liquidation is never enabled regardless of phase — see the AI
-trust boundary notes.
+`PositionsLiquidated` are also always `false` on activation: the Execution
+Service exists as of Phase 5 and could in principle have open orders to
+cancel, but engaging the kill switch does not yet trigger that — no consumer
+subscribes to `KillSwitchActivated` to cancel resting orders. Automatic
+*liquidation* is never enabled regardless of phase — see the AI trust
+boundary notes.
 
 ## Strategy performance is signal counts, not a win rate
 
 `GetAllStrategyPerformanceQuery`/`GetStrategyPerformanceQuery` (Strategy
 Service) report total/buy/sell signal counts and first/last signal time —
 nothing else. A win rate, a Sharpe ratio, or any other outcome-based metric
-needs to know what actually happened to a signal after it was produced,
-which needs a filled order (Phase 5) and a realised P&L (Phase 6/8). Reporting
-one now would be either fabricated or silently wrong, which is exactly the
-"no page anywhere displays a fabricated... P&L figure" rule below applied to
-an API response instead of a dashboard page.
+needs to know what actually happened to a signal after it was produced.
+Phase 5 added the filled order; nothing yet traces a signal to the intent
+and order it produced, and a realised P&L still needs position tracking
+(Phase 6) and/or backtesting (Phase 8). Reporting one now would be either
+fabricated or silently wrong, which is exactly the "no page anywhere
+displays a fabricated... P&L figure" rule below applied to an API response
+instead of a dashboard page.
 
 ## The AI platform runs on a deterministic stub by default
 

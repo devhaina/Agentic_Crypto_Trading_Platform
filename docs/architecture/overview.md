@@ -58,7 +58,7 @@ Three independent mechanisms keep an AI agent from moving funds, not one:
 | **Market Data Service** | Binance WebSocket, TimescaleDB, Redis cache | **Full** |
 | **Trading Service** | Intent lifecycle, the intent→risk workflow | **Full** |
 | **Risk Service** | Risk policy, deterministic gate, position sizing | **Full** |
-| Execution Service | Exchange orders — the only service with credentials | Skeleton |
+| **Execution Service** | Exchange orders — the only service with credentials | **Full** |
 | Portfolio Service | Balances, positions, P&L | Skeleton |
 | **Strategy Service** | Indicator engine, deterministic signals | **Full** |
 | Backtesting Service | Historical simulation | Skeleton |
@@ -105,8 +105,17 @@ later phase plugs into a real workflow instead of a planned one.
 6. The Trading Service applies the decision to the `TradingIntent`
    (`RiskApproved` with the approved quantity, or `RiskRejected` with every
    failing code) and commits.
-7. *(Phase 5)* An approved intent is handed to the Execution Service, which is
-   the only component that signs a request and sends it to Binance.
+7. The approved intent is handed to the Execution Service
+   (`POST /api/v1/orders`, also idempotency-guarded), which is the only
+   component that holds exchange credentials, derives a deterministic
+   client order id, and — only in `Live` mode — signs a request and sends
+   it to Binance. `Order` is persisted `Created` before that call, the same
+   crash-safety discipline as step 2.
+8. The Trading Service advances the intent to `Executed` or `Failed` from
+   the Execution Service's synchronous response and commits. `HasDuplicateOpenOrder`
+   in step 3's risk request is itself the Execution Service's own open-order
+   check (`GET /api/v1/orders/open`), called just before step 3 — the real
+   defence step 4's duplicate-order check actually measures.
 
 ## Further reading
 

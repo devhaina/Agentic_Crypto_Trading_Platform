@@ -18,6 +18,9 @@
   </Folder>
   <Folder Name="/services/execution-service/">
     <Project Path="services/execution-service/Agentiva.Execution.Api/Agentiva.Execution.Api.csproj" />
+    <Project Path="services/execution-service/Agentiva.Execution.Application/Agentiva.Execution.Application.csproj" />
+    <Project Path="services/execution-service/Agentiva.Execution.Domain/Agentiva.Execution.Domain.csproj" />
+    <Project Path="services/execution-service/Agentiva.Execution.Infrastructure/Agentiva.Execution.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/services/identity-service/">
     <Project Path="services/identity-service/Agentiva.Identity.Api/Agentiva.Identity.Api.csproj" />

@@ -1,5 +1,7 @@
 using Agentiva.BuildingBlocks.Messaging.RabbitMq;
 using Agentiva.BuildingBlocks.ServiceDefaults;
+using Agentiva.Execution.Api.Endpoints;
+using Agentiva.Execution.Infrastructure;
 
 // =============================================================================
 // Agentiva — Execution Service
@@ -8,10 +10,11 @@ using Agentiva.BuildingBlocks.ServiceDefaults;
 // credentials, signs requests, enforces the trading mode at the execution
 // boundary and guarantees order idempotency.
 //
-// Phase 1 status: service skeleton. The host, configuration, observability,
-// health probes, OpenAPI document and event-bus connection are production
-// shaped and fully wired. The domain logic lands in Phase 5; see
-// docs/architecture/phases.md.
+// Phase 5: a Binance REST client with request signing, an IExchangeExecution
+// abstraction with a BinanceExecutionAdapter (Live) and a
+// SimulatedExchangeExecution (Backtest/Paper), deterministic client-order-id
+// idempotency, order lifecycle events, and the read API the Trading
+// Service's real duplicate-order check calls.
 // =============================================================================
 
 var builder = WebApplication.CreateBuilder(args);
@@ -21,14 +24,13 @@ builder.AddAgentivaServiceDefaults(
     displayName: "Execution Service",
     description: "The only service permitted to contact an exchange. Owns exchange credentials, signs requests, enforces the trading mode at the execution boundary and guarantees order idempotency.");
 
-// Connects to the event bus as a publisher. Subscriptions are added in Phase 5,
-// alongside the handlers that consume them — a queue bound to routing keys that
-// nothing drains would silently accumulate messages.
 builder.Services.AddAgentivaMessaging(builder.Configuration, "execution-service");
+builder.Services.AddExecutionServices(builder.Configuration);
 
 var app = builder.Build();
 
 app.UseAgentivaServiceDefaults();
 app.MapAgentivaServiceInfo();
+app.MapExecutionEndpoints();
 
 await app.RunAsync();

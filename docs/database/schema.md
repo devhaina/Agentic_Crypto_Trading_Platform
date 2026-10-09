@@ -10,7 +10,7 @@ One database per owning service, provisioned by
 | `identity_db` | Identity | *(none yet — Phase 11)* |
 | `trading_db` | Trading | `trading_intents` + outbox/inbox/idempotency |
 | `risk_db` | Risk | `risk_policies`, `risk_checks` + outbox/inbox/idempotency |
-| `execution_db` | Execution | *(none yet — Phase 5)* |
+| `execution_db` | Execution | `orders` + outbox/inbox/idempotency |
 | `portfolio_db` | Portfolio | *(none yet — Phase 6)* |
 | `strategy_db` | Strategy | `strategies`, `signals` + outbox/inbox/idempotency |
 | `agent_db` | *(reserved)* | Not currently used — the AI platform is stateless in Phase 1 |
