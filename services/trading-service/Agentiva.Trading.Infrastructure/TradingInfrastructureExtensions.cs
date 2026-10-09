@@ -77,8 +77,14 @@ public static class TradingInfrastructureExtensions
         // closed instead and the intent is parked as RiskUnavailable. See the
         // remarks on RiskServiceClient.
 
-        // --- Phase 1 providers ---------------------------------------------------
+        // --- Providers -----------------------------------------------------------
+        services.AddScoped<IPaperLedgerStore, PaperLedgerStore>();
+
+        // Both interfaces resolve to the same concrete type but as separate
+        // scoped instances — harmless here, since the only state it carries
+        // (a one-shot warning flag) tolerates being logged twice at worst.
         services.AddScoped<IPortfolioSnapshotProvider, PaperPortfolioSnapshotProvider>();
+        services.AddScoped<IPaperLedgerDefaults, PaperPortfolioSnapshotProvider>();
         services.AddScoped<IMarketConditionProvider, RedisMarketConditionProvider>();
 
         // --- Application ---------------------------------------------------------

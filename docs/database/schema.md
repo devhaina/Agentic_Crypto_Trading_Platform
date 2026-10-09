@@ -5,14 +5,14 @@
 One database per owning service, provisioned by
 `infrastructure/postgres/init/01-create-databases.sql`:
 
-| Database | Owning service | Phase 1 tables |
+| Database | Owning service | Tables |
 |---|---|---|
 | `identity_db` | Identity | *(none yet — Phase 11)* |
 | `trading_db` | Trading | `trading_intents` + outbox/inbox/idempotency |
 | `risk_db` | Risk | `risk_policies`, `risk_checks` + outbox/inbox/idempotency |
 | `execution_db` | Execution | *(none yet — Phase 5)* |
 | `portfolio_db` | Portfolio | *(none yet — Phase 6)* |
-| `strategy_db` | Strategy | *(none yet — Phase 3)* |
+| `strategy_db` | Strategy | `strategies`, `signals` + outbox/inbox/idempotency |
 | `agent_db` | *(reserved)* | Not currently used — the AI platform is stateless in Phase 1 |
 | `audit_db` | Audit | *(none yet — Phase 5)* |
 | `backtesting_db` | Backtesting | *(none yet — Phase 8)* |
@@ -53,7 +53,11 @@ One database, `market_db`, schema `market`, provisioned by
 `indicator_snapshots`, `portfolio_snapshots` — all hypertables, chunked by
 time. Plus `instrument_precision`, a plain reference table caching exchange
 filters so the risk and execution services don't round-trip to the exchange
-per order. Populated from Phase 2.
+per order. The first four are written by the Market Data Service (Phase 2);
+`indicator_snapshots` is written by the Strategy Service (Phase 3) into this
+same shared database — see known-limitations.md on why that is table-level
+ownership, not a layering slip. `portfolio_snapshots` (Phase 6) remains
+provisioned but empty.
 
 ## The money type
 
@@ -67,7 +71,9 @@ both the Risk and Trading migrations returns only `numeric(38,18)`, zero
 
 ## Redis
 
-Cache only, never the source of truth (Rule, §4). Used for: the latest
-market tick per symbol (Phase 2), the kill-switch and trading-enabled flags
+Cache only, never the source of truth (Rule, §4). Used for: the latest tick,
+candle and order book per symbol, each with a TTL (Phase 2, written by
+`RedisMarketDataCache` in the Market Data Service), the kill-switch and
+trading-enabled flags
 (read by `PlatformStateProvider` in the Risk Service, which fails *closed* —
 treats an unreadable flag as kill-switch-engaged, never as clear).

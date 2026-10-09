@@ -548,10 +548,13 @@ services:
     environment:
       <<: *dotnet-env
       ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=strategy_db;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      ConnectionStrings__Timescale: Host=timescaledb;Port=5432;Database=${TIMESCALE_DB:-market_db};Username=${TIMESCALE_USER};Password=${TIMESCALE_PASSWORD}
     ports:
       - "${STRATEGY_HOST_PORT}:8080"
     depends_on:
       postgres:
+        condition: service_healthy
+      timescaledb:
         condition: service_healthy
       redis:
         condition: service_healthy

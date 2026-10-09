@@ -2,7 +2,9 @@ using Agentiva.BuildingBlocks.Application.Mediator;
 using Agentiva.BuildingBlocks.Common.Correlation;
 using Agentiva.BuildingBlocks.Common.Results;
 using Agentiva.BuildingBlocks.ServiceDefaults.Security;
+using Agentiva.Trading.Application.Abstractions;
 using Agentiva.Trading.Application.Intents;
+using Agentiva.Trading.Application.Ledger;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Agentiva.Trading.Api.Endpoints;
@@ -127,6 +129,68 @@ public static class TradingEndpoints
             .Produces<IReadOnlyList<TradingIntentResponse>>()
             .RequireAuthorization(AgentivaPolicies.CanView);
 
+        // ---------------------------------------------------------------------
+        // Paper-trading ledger — the operator-adjustable baseline the risk
+        // gate measures every intent against until the Portfolio Service
+        // (Phase 6) supplies a real one. Gated on CanAdminister rather than
+        // CanTrade for writes: adjusting the simulated account is an
+        // administrative action, not a trade, even though the gateway's own
+        // /trading route currently authorizes writes at CanTrade — this
+        // service re-checks independently, the same defence-in-depth every
+        // other service applies rather than trusting the gateway alone.
+        // ---------------------------------------------------------------------
+        group.MapGet("/paper-ledger", async (ISender sender, CancellationToken cancellationToken) =>
+            {
+                var result = await sender.SendAsync(new GetPaperLedgerQuery(), cancellationToken);
+                return result.IsSuccess ? Results.Ok(result.Value) : ToProblem(result.Error);
+            })
+            .WithName("GetPaperLedger")
+            .WithSummary("Returns the paper-trading ledger: the operator-set state if any, else the configured baseline.")
+            .Produces<PaperLedgerDto>()
+            .RequireAuthorization(AgentivaPolicies.CanView);
+
+        group.MapPut("/paper-ledger", async (
+                [FromBody] SetPaperLedgerRequest body,
+                HttpContext httpContext,
+                ISender sender,
+                CancellationToken cancellationToken) =>
+            {
+                var actor = httpContext.User.FindFirst("sub")?.Value
+                            ?? httpContext.User.Identity?.Name
+                            ?? "SYSTEM";
+
+                var command = new SetPaperLedgerCommand(
+                    body.Equity, body.AvailableBalance, body.CurrentExposure, body.OpenPositionCount,
+                    body.DailyPnl, actor);
+
+                var result = await sender.SendAsync(command, cancellationToken);
+                return result.IsSuccess ? Results.Ok(result.Value) : ToProblem(result.Error);
+            })
+            .WithName("SetPaperLedger")
+            .WithSummary("Sets the operator-adjustable paper-trading ledger.")
+            .WithDescription(
+                "Still simulated state, not a real portfolio: nothing here tracks fills or derives "
+                + "exposure from actual trades. Per-symbol exposure is not tracked and always reports "
+                + "zero to the risk gate regardless of this ledger's values.")
+            .Produces<PaperLedgerDto>()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .RequireAuthorization(AgentivaPolicies.CanAdminister);
+
+        group.MapPost("/paper-ledger/reset", async (
+                HttpContext httpContext, ISender sender, CancellationToken cancellationToken) =>
+            {
+                var actor = httpContext.User.FindFirst("sub")?.Value
+                            ?? httpContext.User.Identity?.Name
+                            ?? "SYSTEM";
+
+                var result = await sender.SendAsync(new ResetPaperLedgerCommand(actor), cancellationToken);
+                return result.IsSuccess ? Results.Ok(result.Value) : ToProblem(result.Error);
+            })
+            .WithName("ResetPaperLedger")
+            .WithSummary("Clears the operator-set ledger, reverting to the configured baseline.")
+            .Produces<PaperLedgerDto>()
+            .RequireAuthorization(AgentivaPolicies.CanAdminister);
+
         return endpoints;
     }
 
@@ -178,3 +242,16 @@ public sealed record CreateTradingIntentRequest(
     string Source,
     Guid? SignalId = null,
     Guid? StrategyId = null);
+
+/// <summary>Request body to set the paper-trading ledger.</summary>
+/// <param name="Equity">Total simulated account value.</param>
+/// <param name="AvailableBalance">Unencumbered simulated balance. Cannot exceed <paramref name="Equity"/>.</param>
+/// <param name="CurrentExposure">Simulated notional of all open positions, portfolio-wide.</param>
+/// <param name="OpenPositionCount">Simulated open position count.</param>
+/// <param name="DailyPnl">Simulated P&amp;L for the current UTC day. Negative is a loss.</param>
+public sealed record SetPaperLedgerRequest(
+    decimal Equity,
+    decimal AvailableBalance,
+    decimal CurrentExposure,
+    int OpenPositionCount,
+    decimal DailyPnl);

@@ -1,16 +1,18 @@
 using Agentiva.BuildingBlocks.Messaging.RabbitMq;
 using Agentiva.BuildingBlocks.ServiceDefaults;
+using Agentiva.Strategy.Api.Endpoints;
+using Agentiva.Strategy.Infrastructure;
 
 // =============================================================================
 // Agentiva — Strategy Service
 //
-// Deterministic indicator and strategy engine. Produces versioned trading
-// signals. Never executes orders.
-//
-// Phase 1 status: service skeleton. The host, configuration, observability,
-// health probes, OpenAPI document and event-bus connection are production
-// shaped and fully wired. The domain logic lands in Phase 3; see
-// docs/architecture/phases.md.
+// Consumes market.candle.created, computes EMA/RSI/MACD/ATR/VWAP over an
+// in-memory rolling window per symbol and timeframe, evaluates every active
+// deterministic strategy against them, and records and publishes whatever
+// buy or sell signals come out of it. A signal is a recommendation, not an
+// instruction: it still has to pass the Trading Service workflow and the
+// deterministic risk gate before any order exists, and this service never
+// contacts the Execution Service.
 // =============================================================================
 
 var builder = WebApplication.CreateBuilder(args);
@@ -20,14 +22,13 @@ builder.AddAgentivaServiceDefaults(
     displayName: "Strategy Service",
     description: "Deterministic indicator and strategy engine. Produces versioned trading signals. Never executes orders.");
 
-// Connects to the event bus as a publisher. Subscriptions are added in Phase 3,
-// alongside the handlers that consume them — a queue bound to routing keys that
-// nothing drains would silently accumulate messages.
 builder.Services.AddAgentivaMessaging(builder.Configuration, "strategy-service");
+builder.Services.AddStrategyServices(builder.Configuration);
 
 var app = builder.Build();
 
 app.UseAgentivaServiceDefaults();
 app.MapAgentivaServiceInfo();
+app.MapStrategyEndpoints();
 
 await app.RunAsync();

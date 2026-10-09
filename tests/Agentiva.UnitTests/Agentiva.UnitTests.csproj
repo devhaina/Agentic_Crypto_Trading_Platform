@@ -13,6 +13,9 @@
     <ProjectReference Include="..\..\src\building-blocks\Agentiva.BuildingBlocks.Domain\Agentiva.BuildingBlocks.Domain.csproj" />
     <ProjectReference Include="..\..\src\building-blocks\Agentiva.BuildingBlocks.Application\Agentiva.BuildingBlocks.Application.csproj" />
     <ProjectReference Include="..\..\services\risk-service\Agentiva.Risk.Domain\Agentiva.Risk.Domain.csproj" />
+    <ProjectReference Include="..\..\services\market-data-service\Agentiva.MarketData.Domain\Agentiva.MarketData.Domain.csproj" />
+    <ProjectReference Include="..\..\services\market-data-service\Agentiva.MarketData.Application\Agentiva.MarketData.Application.csproj" />
+    <ProjectReference Include="..\..\services\strategy-service\Agentiva.Strategy.Domain\Agentiva.Strategy.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>

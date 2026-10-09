@@ -1,5 +1,7 @@
 using Agentiva.BuildingBlocks.Domain.Primitives;
 using Agentiva.BuildingBlocks.Application.Configuration;
+using Agentiva.BuildingBlocks.Messaging.Abstractions;
+using Agentiva.Contracts.Events.Operations;
 using Agentiva.Risk.Application.Abstractions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -26,6 +28,7 @@ namespace Agentiva.Risk.Infrastructure.Providers;
 /// </remarks>
 public sealed class PlatformStateProvider(
     IOptions<TradingOptions> tradingOptions,
+    IEventPublisher publisher,
     ILogger<PlatformStateProvider> logger,
     IConnectionMultiplexer? redis = null)
     : IPlatformStateProvider
@@ -39,6 +42,8 @@ public sealed class PlatformStateProvider(
     private readonly TradingOptions _trading = tradingOptions.Value;
 
     public TradingMode EffectiveTradingMode => _trading.EffectiveMode;
+
+    public bool IsKillSwitchForcedByConfiguration => _trading.KillSwitchEnabled;
 
     public async Task<bool> IsKillSwitchEngagedAsync(CancellationToken cancellationToken)
     {
@@ -97,6 +102,90 @@ public sealed class PlatformStateProvider(
                 "Could not read the trading-enabled flag from Redis. Treating trading as DISABLED.");
 
             return false;
+        }
+    }
+
+    public async Task EngageKillSwitchAsync(
+        string trigger, string detail, string activatedBy, CancellationToken cancellationToken)
+    {
+        logger.LogCritical(
+            "KILL SWITCH ENGAGED by {ActivatedBy}. Trigger: {Trigger}. Detail: {Detail}",
+            activatedBy, trigger, detail);
+
+        await WriteFlagAsync(KillSwitchKey, engaged: true, cancellationToken);
+
+        // Published directly rather than through the transactional outbox:
+        // this provider has no relational write of its own to be atomic with,
+        // the same reasoning the Market Data Service documents for its own
+        // direct publishes.
+        await publisher.PublishAsync(
+            new KillSwitchActivated
+            {
+                CorrelationId = Guid.NewGuid().ToString(),
+                Trigger = trigger,
+                Detail = detail,
+                ActivatedBy = activatedBy,
+
+                // Neither capability exists yet: the Execution Service that
+                // would hold resting orders to cancel is Phase 5, and
+                // automatic liquidation is never enabled without an
+                // independent, explicit risk approval regardless of phase.
+                PendingOrdersCancelled = false,
+                PositionsLiquidated = false
+            },
+            cancellationToken);
+    }
+
+    public async Task ReleaseKillSwitchAsync(
+        string deactivatedBy, string justification, CancellationToken cancellationToken)
+    {
+        logger.LogWarning(
+            "Kill switch released by {DeactivatedBy}. Justification: {Justification}",
+            deactivatedBy, justification);
+
+        await WriteFlagAsync(KillSwitchKey, engaged: false, cancellationToken);
+
+        await publisher.PublishAsync(
+            new KillSwitchDeactivated
+            {
+                CorrelationId = Guid.NewGuid().ToString(),
+                DeactivatedBy = deactivatedBy,
+                Justification = justification
+            },
+            cancellationToken);
+
+        if (IsKillSwitchForcedByConfiguration)
+        {
+            logger.LogWarning(
+                "The operator flag was cleared, but Trading:KillSwitchEnabled is still true in "
+                + "configuration, so the kill switch remains functionally engaged. A configuration "
+                + "change and redeploy is required to actually resume trading.");
+        }
+    }
+
+    private async Task WriteFlagAsync(string key, bool engaged, CancellationToken cancellationToken)
+    {
+        if (redis is null or { IsConnected: false })
+        {
+            // The write has nowhere to land. Logged loudly rather than thrown:
+            // the caller already logged the attempt at Critical/Warning above,
+            // and the in-process configuration override below still protects
+            // an engage request even when Redis cannot record it.
+            logger.LogError(
+                "Redis is unavailable; could not persist the kill switch flag. If this was an "
+                + "engage request, the switch is NOT actually engaged anywhere other services can "
+                + "see — only this log line records the attempt.");
+
+            return;
+        }
+
+        try
+        {
+            await redis.GetDatabase().StringSetAsync(key, engaged ? "1" : "0");
+        }
+        catch (RedisException ex)
+        {
+            logger.LogError(ex, "Could not write the kill switch flag to Redis.");
         }
     }
 }

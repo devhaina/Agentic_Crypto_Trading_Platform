@@ -146,14 +146,22 @@ because the behaviour under test — `FOR UPDATE SKIP LOCKED` in the outbox
 claim, the unique-index idempotency race — does not exist in an in-memory
 provider.
 
-## Known limitations (Phase 1)
+## Known limitations
 
 Documented in full at
 [`docs/architecture/known-limitations.md`](docs/architecture/known-limitations.md).
-In brief: the Trading Service uses a configured paper-trading balance rather
-than the real Portfolio Service (lands Phase 6); the Risk Service's duplicate-
-order check is a placeholder until the Execution Service exists (Phase 5); no
-exchange connection exists yet (Phase 2 for market data, Phase 5 for orders).
+In brief: the Trading Service's paper-trading ledger (Phase 4) is now
+operator-adjustable via an authenticated endpoint rather than a hardcoded
+constant, but it is still simulated — a real portfolio needs the Execution
+Service (Phase 5) and the Portfolio Service (Phase 6); the Risk Service's
+duplicate-order check is a placeholder until the Execution Service exists
+(Phase 5); the Market Data Service (Phase 2) connects to Binance's public
+streams but no service holds trading credentials or can place an order
+until the Execution Service exists (Phase 5); the Strategy Service's
+(Phase 3) candle buffer warms up from nothing on every restart, and its
+performance endpoint reports signal counts only, not a win rate; the kill
+switch (Phase 4) has no durable record beyond its own published event until
+the Audit Service exists (Phase 5) — see known-limitations.md for why.
 
 ## Documentation
 

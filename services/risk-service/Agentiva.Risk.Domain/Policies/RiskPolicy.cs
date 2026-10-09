@@ -238,6 +238,94 @@ public sealed class RiskPolicy : AggregateRoot<RiskPolicyId>
         Touch(now, updatedBy);
     }
 
+    /// <summary>
+    /// Clears the default flag without deactivating the policy, so promoting a
+    /// new default can demote the old one while leaving it available to be
+    /// selected explicitly by id.
+    /// </summary>
+    public void DemoteFromDefault(DateTimeOffset now, string updatedBy)
+    {
+        IsDefault = false;
+        Touch(now, updatedBy);
+    }
+
+    /// <summary>
+    /// Replaces every limit with the given values, enforcing the same
+    /// invariants as <see cref="Create"/>.
+    /// </summary>
+    /// <remarks>
+    /// Not exposed as individual per-field setters: a policy's limits are
+    /// cross-checked against each other (risk-per-trade against daily loss,
+    /// concentration against total exposure), so validating one field in
+    /// isolation could let a caller apply updates one at a time, each
+    /// individually valid, that leave the policy internally inconsistent in
+    /// between.
+    /// </remarks>
+    /// <exception cref="DomainException">A limit is internally inconsistent.</exception>
+    public void UpdateLimits(
+        Percentage maxRiskPerTrade,
+        Money maxPositionNotional,
+        Percentage maxDailyLoss,
+        Percentage maxPortfolioExposure,
+        Percentage maxAssetConcentration,
+        int maxOpenPositions,
+        Percentage minConfidence,
+        Percentage maxVolatility,
+        bool requireStopLoss,
+        bool requireTakeProfit,
+        Percentage slippageAssumption,
+        Percentage takerFee,
+        TimeSpan marketDataStalenessThreshold,
+        DateTimeOffset now,
+        string updatedBy)
+    {
+        if (maxOpenPositions is < 1 or > 100)
+        {
+            throw new DomainException(
+                "risk.policy.invalid_max_open_positions",
+                $"Maximum open positions must be between 1 and 100 but was {maxOpenPositions}.");
+        }
+
+        if (maxRiskPerTrade > maxDailyLoss)
+        {
+            throw new DomainException(
+                "risk.policy.inconsistent_risk_limits",
+                $"Maximum risk per trade ({maxRiskPerTrade}) exceeds the maximum daily loss "
+                + $"({maxDailyLoss}); a single losing trade would breach the daily limit.");
+        }
+
+        if (maxAssetConcentration > maxPortfolioExposure)
+        {
+            throw new DomainException(
+                "risk.policy.inconsistent_exposure_limits",
+                $"Maximum asset concentration ({maxAssetConcentration}) exceeds maximum portfolio "
+                + $"exposure ({maxPortfolioExposure}) and could never take effect.");
+        }
+
+        if (marketDataStalenessThreshold <= TimeSpan.Zero
+            || marketDataStalenessThreshold > TimeSpan.FromMinutes(10))
+        {
+            throw new DomainException(
+                "risk.policy.invalid_staleness_threshold",
+                "The market data staleness threshold must be between zero and ten minutes.");
+        }
+
+        MaxRiskPerTrade = maxRiskPerTrade;
+        MaxPositionNotional = maxPositionNotional;
+        MaxDailyLoss = maxDailyLoss;
+        MaxPortfolioExposure = maxPortfolioExposure;
+        MaxAssetConcentration = maxAssetConcentration;
+        MaxOpenPositions = maxOpenPositions;
+        MinConfidence = minConfidence;
+        MaxVolatility = maxVolatility;
+        RequireStopLoss = requireStopLoss;
+        RequireTakeProfit = requireTakeProfit;
+        SlippageAssumption = slippageAssumption;
+        TakerFee = takerFee;
+        MarketDataStalenessThreshold = marketDataStalenessThreshold;
+        Touch(now, updatedBy);
+    }
+
     /// <summary>Deactivates the policy so it can no longer be applied.</summary>
     /// <exception cref="DomainException">The policy is the current default.</exception>
     public void Deactivate(DateTimeOffset now, string updatedBy)

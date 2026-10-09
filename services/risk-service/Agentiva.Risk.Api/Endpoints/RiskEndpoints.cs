@@ -3,6 +3,7 @@ using Agentiva.BuildingBlocks.Common.Correlation;
 using Agentiva.BuildingBlocks.Common.Results;
 using Agentiva.BuildingBlocks.ServiceDefaults.Security;
 using Agentiva.Risk.Application.Evaluations;
+using Agentiva.Risk.Application.Operations;
 using Agentiva.Risk.Application.Policies;
 using Microsoft.AspNetCore.Mvc;
 
@@ -105,8 +106,154 @@ public static class RiskEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .RequireAuthorization(AgentivaPolicies.CanView);
 
+        // ---------------------------------------------------------------------
+        // Policy CRUD — administrator only. The limits that constrain the
+        // platform must not be editable through any path a trader or an AI
+        // proposal can reach.
+        // ---------------------------------------------------------------------
+        group.MapPost("/policies", async (
+                [FromBody] RiskPolicyUpsertRequest body,
+                HttpContext httpContext,
+                ISender sender,
+                CancellationToken cancellationToken) =>
+            {
+                var command = new CreateRiskPolicyCommand(
+                    body.Name, body.MaxRiskPerTradePercent, body.MaxPositionNotional, body.MaxDailyLossPercent,
+                    body.MaxPortfolioExposurePercent, body.MaxAssetConcentrationPercent, body.MaxOpenPositions,
+                    body.MinConfidencePercent, body.MaxVolatilityPercent, body.RequireStopLoss,
+                    body.RequireTakeProfit, body.SlippageAssumptionPercent, body.TakerFeePercent,
+                    body.MarketDataStalenessThresholdSeconds, body.QuoteAsset, ActorOf(httpContext));
+
+                var result = await sender.SendAsync(command, cancellationToken);
+
+                return result.IsSuccess
+                    ? Results.Created($"/api/v1/risk/policies/{result.Value.Id}", result.Value)
+                    : ToProblem(result.Error);
+            })
+            .WithName("CreateRiskPolicy")
+            .WithSummary("Creates a new risk policy.")
+            .WithDescription(
+                "The new policy is not applied anywhere until promoted with "
+                + "POST /policies/{id}/mark-default or selected explicitly by id on an evaluation.")
+            .Produces<RiskPolicyDto>(StatusCodes.Status201Created)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .RequireAuthorization(AgentivaPolicies.CanAdminister);
+
+        group.MapPut("/policies/{id:guid}", async (
+                Guid id,
+                [FromBody] RiskPolicyUpsertRequest body,
+                HttpContext httpContext,
+                ISender sender,
+                CancellationToken cancellationToken) =>
+            {
+                var command = new UpdateRiskPolicyCommand(
+                    id, body.MaxRiskPerTradePercent, body.MaxPositionNotional, body.MaxDailyLossPercent,
+                    body.MaxPortfolioExposurePercent, body.MaxAssetConcentrationPercent, body.MaxOpenPositions,
+                    body.MinConfidencePercent, body.MaxVolatilityPercent, body.RequireStopLoss,
+                    body.RequireTakeProfit, body.SlippageAssumptionPercent, body.TakerFeePercent,
+                    body.MarketDataStalenessThresholdSeconds, body.QuoteAsset, ActorOf(httpContext));
+
+                var result = await sender.SendAsync(command, cancellationToken);
+                return result.IsSuccess ? Results.Ok(result.Value) : ToProblem(result.Error);
+            })
+            .WithName("UpdateRiskPolicy")
+            .WithSummary("Replaces every limit on an existing risk policy.")
+            .Produces<RiskPolicyDto>()
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .RequireAuthorization(AgentivaPolicies.CanAdminister);
+
+        group.MapPost("/policies/{id:guid}/deactivate", async (
+                Guid id, HttpContext httpContext, ISender sender, CancellationToken cancellationToken) =>
+            {
+                var result = await sender.SendAsync(
+                    new DeactivateRiskPolicyCommand(id, ActorOf(httpContext)), cancellationToken);
+
+                return result.IsSuccess ? Results.Ok(result.Value) : ToProblem(result.Error);
+            })
+            .WithName("DeactivateRiskPolicy")
+            .WithSummary("Deactivates a policy so it can no longer be applied.")
+            .WithDescription("Refuses to deactivate the current default — promote another policy first.")
+            .Produces<RiskPolicyDto>()
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .RequireAuthorization(AgentivaPolicies.CanAdminister);
+
+        group.MapPost("/policies/{id:guid}/mark-default", async (
+                Guid id, HttpContext httpContext, ISender sender, CancellationToken cancellationToken) =>
+            {
+                var result = await sender.SendAsync(
+                    new MarkRiskPolicyAsDefaultCommand(id, ActorOf(httpContext)), cancellationToken);
+
+                return result.IsSuccess ? Results.Ok(result.Value) : ToProblem(result.Error);
+            })
+            .WithName("MarkRiskPolicyAsDefault")
+            .WithSummary("Promotes a policy to be the one applied when none is specified, demoting the previous default.")
+            .Produces<RiskPolicyDto>()
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .RequireAuthorization(AgentivaPolicies.CanAdminister);
+
+        // ---------------------------------------------------------------------
+        // Kill switch
+        // ---------------------------------------------------------------------
+        group.MapGet("/kill-switch", async (ISender sender, CancellationToken cancellationToken) =>
+            {
+                var result = await sender.SendAsync(new GetKillSwitchStatusQuery(), cancellationToken);
+                return result.IsSuccess ? Results.Ok(result.Value) : ToProblem(result.Error);
+            })
+            .WithName("GetKillSwitchStatus")
+            .WithSummary("Returns the current kill-switch and trading-admission state.")
+            .Produces<KillSwitchStatusDto>()
+            .RequireAuthorization(AgentivaPolicies.CanView);
+
+        group.MapPost("/kill-switch/engage", async (
+                [FromBody] EngageKillSwitchRequest body,
+                HttpContext httpContext,
+                ISender sender,
+                CancellationToken cancellationToken) =>
+            {
+                var command = new EngageKillSwitchCommand(body.Trigger, body.Detail, ActorOf(httpContext));
+                var result = await sender.SendAsync(command, cancellationToken);
+                return result.IsSuccess ? Results.Ok(result.Value) : ToProblem(result.Error);
+            })
+            .WithName("EngageKillSwitch")
+            .WithSummary("Engages the global kill switch. Every subsequent risk evaluation is rejected until released.")
+            .Produces<KillSwitchStatusDto>()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .RequireAuthorization(AgentivaPolicies.CanOperate);
+
+        group.MapPost("/kill-switch/release", async (
+                [FromBody] ReleaseKillSwitchRequest body,
+                HttpContext httpContext,
+                ISender sender,
+                CancellationToken cancellationToken) =>
+            {
+                var command = new ReleaseKillSwitchCommand(ActorOf(httpContext), body.Justification);
+                var result = await sender.SendAsync(command, cancellationToken);
+                return result.IsSuccess ? Results.Ok(result.Value) : ToProblem(result.Error);
+            })
+            .WithName("ReleaseKillSwitch")
+            .WithSummary("Releases the global kill switch.")
+            .WithDescription(
+                "If Trading:KillSwitchEnabled is still true in configuration, the response reports "
+                + "engaged=true even after a successful release: configuration always wins, and a "
+                + "redeploy is required to actually resume trading in that case.")
+            .Produces<KillSwitchStatusDto>()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .RequireAuthorization(AgentivaPolicies.CanOperate);
+
         return endpoints;
     }
+
+    /// <summary>
+    /// The authenticated caller's id, for every field that must record who
+    /// acted. Never taken from the request body — a caller naming its own
+    /// actor would make the audit trail worthless.
+    /// </summary>
+    private static string ActorOf(HttpContext httpContext)
+        => httpContext.User.FindFirst("sub")?.Value ?? httpContext.User.Identity?.Name ?? "SYSTEM";
 
     /// <summary>Maps a domain error onto an RFC 9457 problem document.</summary>
     private static IResult ToProblem(Error error)
@@ -162,3 +309,45 @@ public sealed record EvaluateIntentRequest(
     bool IsExchangeAvailable = true,
     bool HasDuplicateOpenOrder = false,
     Guid? RiskPolicyId = null);
+
+/// <summary>Request body for creating or replacing a risk policy's limits.</summary>
+/// <param name="Name">Policy name. Ignored on update — a policy is not renamed through this endpoint.</param>
+/// <param name="MaxRiskPerTradePercent">Maximum equity at risk per trade, in percent.</param>
+/// <param name="MaxPositionNotional">Maximum value of one position, in the quote asset.</param>
+/// <param name="MaxDailyLossPercent">Maximum loss in one UTC day, in percent of equity.</param>
+/// <param name="MaxPortfolioExposurePercent">Maximum combined exposure, in percent of equity.</param>
+/// <param name="MaxAssetConcentrationPercent">Maximum single-symbol exposure, in percent of equity.</param>
+/// <param name="MaxOpenPositions">Maximum simultaneously open positions.</param>
+/// <param name="MinConfidencePercent">Minimum signal confidence, in percent.</param>
+/// <param name="MaxVolatilityPercent">Maximum acceptable symbol volatility, in percent.</param>
+/// <param name="RequireStopLoss">Whether a stop-loss is mandatory.</param>
+/// <param name="RequireTakeProfit">Whether a take-profit is mandatory.</param>
+/// <param name="SlippageAssumptionPercent">Adverse slippage assumed per leg, in percent.</param>
+/// <param name="TakerFeePercent">Taker fee assumed per leg, in percent.</param>
+/// <param name="MarketDataStalenessThresholdSeconds">Maximum tolerated market data age.</param>
+/// <param name="QuoteAsset">Asset <see cref="MaxPositionNotional"/> is denominated in, e.g. <c>USDT</c>.</param>
+public sealed record RiskPolicyUpsertRequest(
+    string Name,
+    decimal MaxRiskPerTradePercent,
+    decimal MaxPositionNotional,
+    decimal MaxDailyLossPercent,
+    decimal MaxPortfolioExposurePercent,
+    decimal MaxAssetConcentrationPercent,
+    int MaxOpenPositions,
+    decimal MinConfidencePercent,
+    decimal MaxVolatilityPercent,
+    bool RequireStopLoss,
+    bool RequireTakeProfit,
+    decimal SlippageAssumptionPercent,
+    decimal TakerFeePercent,
+    double MarketDataStalenessThresholdSeconds,
+    string QuoteAsset);
+
+/// <summary>Request body to engage the kill switch.</summary>
+/// <param name="Trigger">Stable trigger code, e.g. <c>operator_manual</c>.</param>
+/// <param name="Detail">Human-readable context for the activation.</param>
+public sealed record EngageKillSwitchRequest(string Trigger, string Detail);
+
+/// <summary>Request body to release the kill switch.</summary>
+/// <param name="Justification">Why it is now safe to resume trading. Required.</param>
+public sealed record ReleaseKillSwitchRequest(string Justification);

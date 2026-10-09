@@ -52,6 +52,23 @@ public interface IPlatformStateProvider
 
     /// <summary>The effective trading mode.</summary>
     TradingMode EffectiveTradingMode { get; }
+
+    /// <summary>
+    /// Whether configuration forces the kill switch engaged regardless of the
+    /// Redis flag. An operator calling <see cref="ReleaseKillSwitchAsync"/>
+    /// while this is true clears the flag but the switch stays functionally
+    /// engaged, which the caller needs to know rather than being told the
+    /// release succeeded.
+    /// </summary>
+    bool IsKillSwitchForcedByConfiguration { get; }
+
+    /// <summary>Engages the kill switch and publishes the activation event.</summary>
+    Task EngageKillSwitchAsync(
+        string trigger, string detail, string activatedBy, CancellationToken cancellationToken);
+
+    /// <summary>Releases the kill switch and publishes the deactivation event.</summary>
+    Task ReleaseKillSwitchAsync(
+        string deactivatedBy, string justification, CancellationToken cancellationToken);
 }
 
 /// <summary>Supplies the exchange precision filters for a symbol.</summary>

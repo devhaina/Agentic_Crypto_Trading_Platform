@@ -24,6 +24,9 @@
   </Folder>
   <Folder Name="/services/market-data-service/">
     <Project Path="services/market-data-service/Agentiva.MarketData.Api/Agentiva.MarketData.Api.csproj" />
+    <Project Path="services/market-data-service/Agentiva.MarketData.Application/Agentiva.MarketData.Application.csproj" />
+    <Project Path="services/market-data-service/Agentiva.MarketData.Domain/Agentiva.MarketData.Domain.csproj" />
+    <Project Path="services/market-data-service/Agentiva.MarketData.Infrastructure/Agentiva.MarketData.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/services/notification-service/">
     <Project Path="services/notification-service/Agentiva.Notification.Api/Agentiva.Notification.Api.csproj" />
@@ -42,6 +45,9 @@
   </Folder>
   <Folder Name="/services/strategy-service/">
     <Project Path="services/strategy-service/Agentiva.Strategy.Api/Agentiva.Strategy.Api.csproj" />
+    <Project Path="services/strategy-service/Agentiva.Strategy.Application/Agentiva.Strategy.Application.csproj" />
+    <Project Path="services/strategy-service/Agentiva.Strategy.Domain/Agentiva.Strategy.Domain.csproj" />
+    <Project Path="services/strategy-service/Agentiva.Strategy.Infrastructure/Agentiva.Strategy.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/services/trading-service/">
     <Project Path="services/trading-service/Agentiva.Trading.Api/Agentiva.Trading.Api.csproj" />

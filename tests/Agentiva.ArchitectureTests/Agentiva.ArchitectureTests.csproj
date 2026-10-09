@@ -26,6 +26,12 @@
     <ProjectReference Include="..\..\services\trading-service\Agentiva.Trading.Domain\Agentiva.Trading.Domain.csproj" />
     <ProjectReference Include="..\..\services\trading-service\Agentiva.Trading.Application\Agentiva.Trading.Application.csproj" />
     <ProjectReference Include="..\..\services\trading-service\Agentiva.Trading.Infrastructure\Agentiva.Trading.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\services\market-data-service\Agentiva.MarketData.Domain\Agentiva.MarketData.Domain.csproj" />
+    <ProjectReference Include="..\..\services\market-data-service\Agentiva.MarketData.Application\Agentiva.MarketData.Application.csproj" />
+    <ProjectReference Include="..\..\services\market-data-service\Agentiva.MarketData.Infrastructure\Agentiva.MarketData.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\services\strategy-service\Agentiva.Strategy.Domain\Agentiva.Strategy.Domain.csproj" />
+    <ProjectReference Include="..\..\services\strategy-service\Agentiva.Strategy.Application\Agentiva.Strategy.Application.csproj" />
+    <ProjectReference Include="..\..\services\strategy-service\Agentiva.Strategy.Infrastructure\Agentiva.Strategy.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>

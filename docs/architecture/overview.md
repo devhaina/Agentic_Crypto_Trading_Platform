@@ -51,16 +51,16 @@ Three independent mechanisms keep an AI agent from moving funds, not one:
 
 ## Service map
 
-| Service | Owns | Phase 1 status |
+| Service | Owns | Status |
 |---|---|---|
 | API Gateway | Routing, auth, rate limiting, CORS | Full (YARP) |
 | Identity Service | Users, roles, JWT issuance | Skeleton |
-| Market Data Service | Binance WebSocket, TimescaleDB, Redis cache | Skeleton |
+| **Market Data Service** | Binance WebSocket, TimescaleDB, Redis cache | **Full** |
 | **Trading Service** | Intent lifecycle, the intent→risk workflow | **Full** |
 | **Risk Service** | Risk policy, deterministic gate, position sizing | **Full** |
 | Execution Service | Exchange orders — the only service with credentials | Skeleton |
 | Portfolio Service | Balances, positions, P&L | Skeleton |
-| Strategy Service | Indicator engine, deterministic signals | Skeleton |
+| **Strategy Service** | Indicator engine, deterministic signals | **Full** |
 | Backtesting Service | Historical simulation | Skeleton |
 | Reconciliation Service | Exchange-vs-internal-state comparison | Skeleton |
 | Notification Service | Alert delivery | Skeleton |

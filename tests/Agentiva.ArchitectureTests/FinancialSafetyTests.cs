@@ -23,7 +23,11 @@ public sealed class FinancialSafetyTests
         typeof(Risk.Domain.Policies.RiskPolicy).Assembly,
         typeof(Risk.Application.Evaluations.EvaluateIntentCommand).Assembly,
         typeof(Trading.Domain.Intents.TradingIntent).Assembly,
-        typeof(Trading.Application.Intents.CreateTradingIntentCommand).Assembly
+        typeof(Trading.Application.Intents.CreateTradingIntentCommand).Assembly,
+        typeof(MarketData.Domain.Entities.Tick).Assembly,
+        typeof(MarketData.Application.Queries.GetTickerQuery).Assembly,
+        typeof(Strategy.Domain.Entities.Signal).Assembly,
+        typeof(Strategy.Application.Queries.GetRecentSignalsQuery).Assembly
     ];
 
     /// <summary>
@@ -43,7 +47,10 @@ public sealed class FinancialSafetyTests
         "MarketConditionDto.MarketDataAgeSeconds",
         "EvaluateIntentCommand.MarketDataAgeSeconds",
         "RiskEvaluationRequestDto.MarketDataAgeSeconds",
-        "RiskPolicyDto.MarketDataStalenessThresholdSeconds"
+        "RiskPolicyDto.MarketDataStalenessThresholdSeconds",
+        "SymbolFeedStatusDto.StaleForSeconds",
+        "CreateRiskPolicyCommand.MarketDataStalenessThresholdSeconds",
+        "UpdateRiskPolicyCommand.MarketDataStalenessThresholdSeconds"
     };
 
     /// <summary>
@@ -123,7 +130,28 @@ public sealed class FinancialSafetyTests
         // Command names whose effects are confined to this service's own
         // records and cannot reach an exchange. Reads and pure queries are
         // excluded by the ICommand filter already.
-        var nonFinancialCommands = new HashSet<string>(StringComparer.Ordinal);
+        var nonFinancialCommands = new HashSet<string>(StringComparer.Ordinal)
+        {
+            // Risk policy CRUD: administrative changes to the limits a trade is
+            // measured against, not a transaction themselves. A replayed
+            // request produces the same policy state, not a duplicate order.
+            nameof(Risk.Application.Policies.CreateRiskPolicyCommand),
+            nameof(Risk.Application.Policies.UpdateRiskPolicyCommand),
+            nameof(Risk.Application.Policies.DeactivateRiskPolicyCommand),
+            nameof(Risk.Application.Policies.MarkRiskPolicyAsDefaultCommand),
+
+            // Kill switch: an operator toggle, naturally idempotent (engaging
+            // an already-engaged switch, or releasing an already-released
+            // one, both leave the same end state) and never itself a trade.
+            nameof(Risk.Application.Operations.EngageKillSwitchCommand),
+            nameof(Risk.Application.Operations.ReleaseKillSwitchCommand),
+
+            // Paper-ledger admin: sets simulated portfolio state the risk
+            // gate reads, but moves no real money and reaches no exchange —
+            // see the remarks on PaperPortfolioSnapshotProvider.
+            nameof(Trading.Application.Ledger.SetPaperLedgerCommand),
+            nameof(Trading.Application.Ledger.ResetPaperLedgerCommand)
+        };
 
         foreach (var assembly in new[]
                  {

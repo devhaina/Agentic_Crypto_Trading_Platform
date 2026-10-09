@@ -21,65 +21,101 @@ public sealed class PaperPortfolioOptions
 /// </summary>
 /// <remarks>
 /// <para>
-/// A Phase 1 implementation returning a configured paper baseline, because the
-/// Portfolio Service has no data until Phase 6. From Phase 6 this calls the
-/// Portfolio Service over HTTP.
+/// Phase 4 replaced the Phase 1 hardcoded baseline with an operator-adjustable
+/// one: <see cref="GetAsync"/> reads <see cref="IPaperLedgerStore"/> first —
+/// a Redis-backed value an operator can set through an authenticated endpoint
+/// — and falls back to <see cref="ConfiguredBaseline"/> only when nothing has
+/// been set. This is still simulated state, not a real portfolio: nothing
+/// here tracks fills or derives exposure from actual trades. The Portfolio
+/// Service has no data until Phase 6, and this provider is replaced outright
+/// then, not extended.
 /// </para>
 /// <para>
-/// It reports zero exposure and zero daily loss, which is the <em>optimistic</em>
-/// direction, so the exposure, concentration and daily-loss checks cannot
-/// meaningfully bind yet. That is an accepted and documented Phase 1 limitation
-/// rather than an oversight — the platform runs in paper mode with no real funds
-/// at stake — and it is recorded in docs/architecture/known-limitations.md.
+/// <c>CurrentSymbolExposure</c> on the returned snapshot is always
+/// zero regardless of source — a real per-symbol figure needs real position
+/// tracking, which this ledger deliberately does not attempt. See
+/// docs/architecture/known-limitations.md.
 /// </para>
 /// </remarks>
 public sealed class PaperPortfolioSnapshotProvider(
     IOptions<PaperPortfolioOptions> options,
+    IPaperLedgerStore ledgerStore,
     ILogger<PaperPortfolioSnapshotProvider> logger)
-    : IPortfolioSnapshotProvider
+    : IPortfolioSnapshotProvider, IPaperLedgerDefaults
 {
     private readonly PaperPortfolioOptions _options = options.Value;
     private bool _warned;
 
-    public Task<PortfolioSnapshotDto> GetAsync(string symbol, CancellationToken cancellationToken)
+    public async Task<PortfolioSnapshotDto> GetAsync(string symbol, CancellationToken cancellationToken)
     {
-        if (!_warned)
-        {
-            _warned = true;
+        var ledger = await ledgerStore.GetAsync(cancellationToken);
 
-            logger.LogWarning(
-                "Using the Phase 1 paper portfolio baseline ({Equity} equity, zero exposure). "
-                + "Exposure, concentration and daily-loss checks cannot bind until the Portfolio "
-                + "Service supplies real state in Phase 6.",
-                _options.StartingEquity);
+        if (ledger is null)
+        {
+            if (!_warned)
+            {
+                _warned = true;
+
+                logger.LogWarning(
+                    "No operator-set paper ledger exists; using the configured baseline ({Equity} "
+                    + "equity, zero exposure). Set one with PUT /api/v1/trading/paper-ledger.",
+                    _options.StartingEquity);
+            }
+
+            ledger = ConfiguredBaseline();
         }
 
-        return Task.FromResult(new PortfolioSnapshotDto(
-            Equity: _options.StartingEquity,
-            AvailableBalance: _options.StartingEquity,
-            CurrentExposure: 0m,
+        return new PortfolioSnapshotDto(
+            Equity: ledger.Equity,
+            AvailableBalance: ledger.AvailableBalance,
+            CurrentExposure: ledger.CurrentExposure,
             CurrentSymbolExposure: 0m,
-            OpenPositionCount: 0,
-            DailyPnl: 0m));
+            OpenPositionCount: ledger.OpenPositionCount,
+            DailyPnl: ledger.DailyPnl);
     }
+
+    public PaperLedgerDto ConfiguredBaseline() => new(
+        Equity: _options.StartingEquity,
+        AvailableBalance: _options.StartingEquity,
+        CurrentExposure: 0m,
+        OpenPositionCount: 0,
+        DailyPnl: 0m,
+        UpdatedAt: default,
+        UpdatedBy: "SYSTEM");
 }
 
 /// <summary>
 /// Reports market conditions from the Redis market-data cache.
 /// </summary>
 /// <remarks>
+/// <para>
 /// When no cached tick exists the data age is reported as very large rather than
 /// zero. Reporting fresh data for data that does not exist would disable the
 /// staleness check entirely — the single check that stops the platform sizing a
 /// position against a price that no longer holds.
+/// </para>
+/// <para>
+/// Price and volatility come from two independently-written keys, not one.
+/// The Market Data Service owns <see cref="LastTickKeyTemplate"/> (price and
+/// timestamp); the Strategy Service owns <see cref="VolatilityKeyTemplate"/>
+/// (an ATR-derived annualised estimate, computed once it has enough candle
+/// history — see <c>IndicatorEngine</c> and <c>MarketCandleCreatedHandler</c>
+/// in that service, Phase 4). Two writers sharing one key would race on every
+/// update, since a plain Redis <c>SET</c> replaces the whole value; two
+/// independent keys make that impossible by construction, at the cost of
+/// this provider needing two reads instead of one.
+/// </para>
 /// </remarks>
 public sealed class RedisMarketConditionProvider(
     ILogger<RedisMarketConditionProvider> logger,
     IConnectionMultiplexer? redis = null)
     : IMarketConditionProvider
 {
-    /// <summary>Redis key template holding the latest tick for a symbol.</summary>
+    /// <summary>Redis key template holding the latest tick for a symbol. Written by the Market Data Service.</summary>
     public const string LastTickKeyTemplate = "agentiva:market:tick:{0}";
+
+    /// <summary>Redis key template holding the latest volatility estimate for a symbol. Written by the Strategy Service.</summary>
+    public const string VolatilityKeyTemplate = "agentiva:market:volatility:{0}";
 
     /// <summary>Age reported when nothing is cached: effectively infinitely stale.</summary>
     private const double UnknownDataAgeSeconds = 86_400;
@@ -94,6 +130,8 @@ public sealed class RedisMarketConditionProvider(
             return new MarketConditionDto(UnknownDataAgeSeconds, 0m, IsExchangeAvailable: false, null);
         }
 
+        var volatilityPercent = await ReadVolatilityAsync(symbol, cancellationToken);
+
         try
         {
             var key = string.Format(System.Globalization.CultureInfo.InvariantCulture,
@@ -106,7 +144,7 @@ public sealed class RedisMarketConditionProvider(
                 // Nothing cached. Phase 2 populates this from the Binance
                 // WebSocket feed; until then every intent is correctly refused
                 // for stale data unless a price is supplied explicitly.
-                return new MarketConditionDto(UnknownDataAgeSeconds, 0m, IsExchangeAvailable: false, null);
+                return new MarketConditionDto(UnknownDataAgeSeconds, volatilityPercent, IsExchangeAvailable: false, null);
             }
 
             var tick = System.Text.Json.JsonSerializer.Deserialize<CachedTick>(
@@ -114,14 +152,14 @@ public sealed class RedisMarketConditionProvider(
 
             if (tick is null)
             {
-                return new MarketConditionDto(UnknownDataAgeSeconds, 0m, IsExchangeAvailable: false, null);
+                return new MarketConditionDto(UnknownDataAgeSeconds, volatilityPercent, IsExchangeAvailable: false, null);
             }
 
             var age = (DateTimeOffset.UtcNow - tick.ExchangeTimestamp).TotalSeconds;
 
             return new MarketConditionDto(
                 MarketDataAgeSeconds: Math.Max(age, 0),
-                VolatilityPercent: tick.VolatilityPercent ?? 0m,
+                VolatilityPercent: volatilityPercent,
                 IsExchangeAvailable: true,
                 LastPrice: tick.LastPrice);
         }
@@ -132,7 +170,39 @@ public sealed class RedisMarketConditionProvider(
                 ex,
                 "Could not read cached market data for {Symbol}. Reporting it as stale.", symbol);
 
-            return new MarketConditionDto(UnknownDataAgeSeconds, 0m, IsExchangeAvailable: false, null);
+            return new MarketConditionDto(UnknownDataAgeSeconds, volatilityPercent, IsExchangeAvailable: false, null);
+        }
+    }
+
+    /// <summary>
+    /// Reads the Strategy Service's volatility estimate. Absent (no candle
+    /// history computed yet) or unreadable both fall back to zero — the same
+    /// optimistic-direction default this field has always reported before
+    /// Phase 4, when nothing computed it at all.
+    /// </summary>
+    private async Task<decimal> ReadVolatilityAsync(string symbol, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var key = string.Format(
+                System.Globalization.CultureInfo.InvariantCulture, VolatilityKeyTemplate, symbol);
+
+            var cached = await redis!.GetDatabase().StringGetAsync(key);
+
+            if (!cached.HasValue)
+            {
+                return 0m;
+            }
+
+            var snapshot = System.Text.Json.JsonSerializer.Deserialize<CachedVolatility>(
+                cached.ToString(), BuildingBlocks.Common.Json.AgentivaJson.Options);
+
+            return snapshot?.VolatilityPercent ?? 0m;
+        }
+        catch (Exception ex) when (ex is RedisException or System.Text.Json.JsonException)
+        {
+            logger.LogWarning(ex, "Could not read the cached volatility estimate for {Symbol}.", symbol);
+            return 0m;
         }
     }
 
@@ -142,4 +212,11 @@ public sealed class RedisMarketConditionProvider(
         decimal LastPrice,
         decimal? VolatilityPercent,
         DateTimeOffset ExchangeTimestamp);
+
+    /// <summary>Shape of the cached volatility estimate written by the Strategy Service.</summary>
+    private sealed record CachedVolatility(
+        string Symbol,
+        string Timeframe,
+        decimal VolatilityPercent,
+        DateTimeOffset ComputedAt);
 }

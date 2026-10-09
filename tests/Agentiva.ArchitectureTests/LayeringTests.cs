@@ -23,6 +23,10 @@ public sealed class LayeringTests
     private static Assembly TradingDomain => typeof(Trading.Domain.Intents.TradingIntent).Assembly;
     private static Assembly TradingApplication =>
         typeof(Trading.Application.Intents.CreateTradingIntentCommand).Assembly;
+    private static Assembly MarketDataDomain => typeof(MarketData.Domain.Entities.Tick).Assembly;
+    private static Assembly MarketDataApplication => typeof(MarketData.Application.Queries.GetTickerQuery).Assembly;
+    private static Assembly StrategyDomain => typeof(Strategy.Domain.Entities.Signal).Assembly;
+    private static Assembly StrategyApplication => typeof(Strategy.Application.Queries.GetRecentSignalsQuery).Assembly;
     private static Assembly BuildingBlocksDomain => typeof(Symbol).Assembly;
 
     /// <summary>
@@ -164,13 +168,17 @@ public sealed class LayeringTests
     {
         { "Risk.Domain", RiskDomain },
         { "Trading.Domain", TradingDomain },
+        { "MarketData.Domain", MarketDataDomain },
+        { "Strategy.Domain", StrategyDomain },
         { "BuildingBlocks.Domain", BuildingBlocksDomain }
     };
 
     public static TheoryData<string, Assembly> ApplicationAssemblies() => new()
     {
         { "Risk.Application", RiskApplication },
-        { "Trading.Application", TradingApplication }
+        { "Trading.Application", TradingApplication },
+        { "MarketData.Application", MarketDataApplication },
+        { "Strategy.Application", StrategyApplication }
     };
 
     internal static string FailureMessage(NetArchTest.Rules.TestResult result, string problem)

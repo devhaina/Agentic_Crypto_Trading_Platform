@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Agentiva.Strategy.Infrastructure\Agentiva.Strategy.Infrastructure.csproj" />
     <ProjectReference Include="..\..\..\src\building-blocks\Agentiva.BuildingBlocks.ServiceDefaults\Agentiva.BuildingBlocks.ServiceDefaults.csproj" />
   </ItemGroup>
 
