@@ -36,6 +36,9 @@
   </Folder>
   <Folder Name="/services/portfolio-service/">
     <Project Path="services/portfolio-service/Agentiva.Portfolio.Api/Agentiva.Portfolio.Api.csproj" />
+    <Project Path="services/portfolio-service/Agentiva.Portfolio.Application/Agentiva.Portfolio.Application.csproj" />
+    <Project Path="services/portfolio-service/Agentiva.Portfolio.Domain/Agentiva.Portfolio.Domain.csproj" />
+    <Project Path="services/portfolio-service/Agentiva.Portfolio.Infrastructure/Agentiva.Portfolio.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/services/reconciliation-service/">
     <Project Path="services/reconciliation-service/Agentiva.Reconciliation.Api/Agentiva.Reconciliation.Api.csproj" />

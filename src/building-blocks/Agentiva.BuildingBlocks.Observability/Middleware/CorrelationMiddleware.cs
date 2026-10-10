@@ -39,6 +39,13 @@ public sealed class CorrelationMiddleware(RequestDelegate next)
             mutable.CorrelationId = correlationId;
             mutable.RequestId = requestId;
             mutable.AgentRunId = agentRunId;
+
+            // Captured so this service's own downstream HTTP clients can
+            // forward the caller's identity on a service-to-service call —
+            // see the remarks on ICorrelationContext.AuthorizationHeader.
+            // Deliberately never logged or tagged onto the trace, unlike
+            // every other field captured here: this one is a bearer credential.
+            mutable.AuthorizationHeader = context.Request.Headers.Authorization.FirstOrDefault();
         }
 
         // Echo it back so the browser's network tab and any intermediary can see

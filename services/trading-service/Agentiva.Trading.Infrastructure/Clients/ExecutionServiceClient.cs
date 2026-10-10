@@ -27,7 +27,16 @@ public sealed class ExecutionServiceClient(
 
         try
         {
-            using var response = await httpClient.GetAsync(query, cancellationToken);
+            using var request = new HttpRequestMessage(HttpMethod.Get, query);
+
+            // Delegation, not a separately minted service token — see the
+            // remarks on ICorrelationContext.AuthorizationHeader.
+            if (!string.IsNullOrEmpty(correlation.AuthorizationHeader))
+            {
+                request.Headers.TryAddWithoutValidation("Authorization", correlation.AuthorizationHeader);
+            }
+
+            using var response = await httpClient.SendAsync(request, cancellationToken);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -86,6 +95,11 @@ public sealed class ExecutionServiceClient(
 
         message.Headers.Add(CorrelationHeaders.IdempotencyKey, idempotencyKey);
         message.Headers.Add(CorrelationHeaders.CorrelationId, correlation.CorrelationId);
+
+        if (!string.IsNullOrEmpty(correlation.AuthorizationHeader))
+        {
+            message.Headers.TryAddWithoutValidation("Authorization", correlation.AuthorizationHeader);
+        }
 
         try
         {

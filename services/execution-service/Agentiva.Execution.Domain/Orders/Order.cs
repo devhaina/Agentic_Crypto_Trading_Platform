@@ -187,7 +187,7 @@ public sealed class Order : AggregateRoot<OrderId>
         var remaining = Quantity - cumulativeFilledQuantity;
 
         Raise(new OrderPartiallyFilledDomainEvent(
-            now, Id.Value, Symbol.Value, cumulativeFilledQuantity.Value, remaining.Value,
+            now, Id.Value, TradingAccountId.Value, Symbol.Value, cumulativeFilledQuantity.Value, remaining.Value,
             averageFillPrice.Value, cumulativeFeePaid, feeAsset));
     }
 
@@ -218,9 +218,9 @@ public sealed class Order : AggregateRoot<OrderId>
         var filledNotional = filledQuantity.Value * averageFillPrice.Value;
 
         Raise(new OrderFilledDomainEvent(
-            now, Id.Value, TradingIntentId.Value, Symbol.Value, Side.ToString().ToUpperInvariant(),
-            filledQuantity.Value, averageFillPrice.Value, filledNotional, feePaid, feeAsset,
-            ExchangeOrderId, filledAt, TradingMode.ToString().ToUpperInvariant()));
+            now, Id.Value, TradingIntentId.Value, TradingAccountId.Value, Symbol.Value,
+            Side.ToString().ToUpperInvariant(), filledQuantity.Value, averageFillPrice.Value, filledNotional,
+            feePaid, feeAsset, ExchangeOrderId, filledAt, TradingMode.ToString().ToUpperInvariant()));
     }
 
     /// <summary>Cancels an order that has not yet filled completely.</summary>

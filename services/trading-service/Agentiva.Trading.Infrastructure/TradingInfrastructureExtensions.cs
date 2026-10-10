@@ -43,12 +43,6 @@ public static class TradingInfrastructureExtensions
             .ValidateDataAnnotations()
             .ValidateOnStart();
 
-        services
-            .AddOptions<PaperPortfolioOptions>()
-            .Bind(configuration.GetSection(PaperPortfolioOptions.SectionName))
-            .ValidateDataAnnotations()
-            .ValidateOnStart();
-
         // --- Persistence -------------------------------------------------------
         services.AddAgentivaDbContext<TradingDbContext>(configuration);
         services.AddAgentivaOutboxProcessor<TradingDbContext>(configuration);
@@ -91,14 +85,17 @@ public static class TradingInfrastructureExtensions
         // risk gate client: a timed-out order placement may already have
         // reached the exchange, and an automatic retry risks a second one.
 
-        // --- Providers -----------------------------------------------------------
-        services.AddScoped<IPaperLedgerStore, PaperLedgerStore>();
+        // --- Portfolio Service client ------------------------------------------
+        var portfolioUrl = configuration["Services:PortfolioServiceUrl"] ?? "http://portfolio-service:8080";
 
-        // Both interfaces resolve to the same concrete type but as separate
-        // scoped instances — harmless here, since the only state it carries
-        // (a one-shot warning flag) tolerates being logged twice at worst.
-        services.AddScoped<IPortfolioSnapshotProvider, PaperPortfolioSnapshotProvider>();
-        services.AddScoped<IPaperLedgerDefaults, PaperPortfolioSnapshotProvider>();
+        services
+            .AddHttpClient<IPortfolioSnapshotProvider, PortfolioServiceClient>(client =>
+            {
+                client.BaseAddress = new Uri(portfolioUrl);
+                client.Timeout = TimeSpan.FromSeconds(15);
+            });
+
+        // --- Providers -----------------------------------------------------------
         services.AddScoped<IMarketConditionProvider, RedisMarketConditionProvider>();
 
         // --- Application ---------------------------------------------------------

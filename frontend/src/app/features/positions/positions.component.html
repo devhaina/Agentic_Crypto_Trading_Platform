@@ -4,18 +4,65 @@
 </header>
 
 <div class="card">
-  <div class="empty-state">
-    <p style="margin: 0 0 0.5rem"><strong>Not yet implemented.</strong></p>
-    <p style="margin: 0">This view is delivered in Phase 6.</p>
-  </div>
+  @if (loading()) {
+    <div class="empty-state">Loading…</div>
+  } @else if (positions().length === 0) {
+    <div class="empty-state">
+      No open positions for this account. A position appears here once an order fills — see
+      <a routerLink="/trading">Trading</a>.
+    </div>
+  } @else {
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Direction</th>
+            <th>Quantity</th>
+            <th>Avg. entry</th>
+            <th>Mark price</th>
+            <th>Realised P&L</th>
+            <th>Unrealised P&L</th>
+            <th>Opened</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (position of positions(); track position.positionId) {
+            <tr>
+              <td>{{ position.symbol }}</td>
+              <td>
+                <span
+                  class="badge"
+                  [class.badge--ok]="position.direction === 'LONG'"
+                  [class.badge--warn]="position.direction === 'SHORT'"
+                >
+                  {{ position.direction }}
+                </span>
+              </td>
+              <td class="numeric">{{ position.quantity }}</td>
+              <td class="numeric">{{ position.averageEntryPrice }}</td>
+              <td class="numeric">{{ position.markPrice }}</td>
+              <td [class]="pnlClass(position.realizedPnl)">{{ position.realizedPnl }}</td>
+              <td [class]="pnlClass(position.unrealizedPnl)">{{ position.unrealizedPnl }}</td>
+              <td>{{ position.openedAt ? (position.openedAt | date: 'medium') : '—' }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
 </div>
 
 <div class="phase-note">
-  <p><strong>What Phase 6 adds here</strong></p>
-  <p>Position tracking built from order fill events, with P&L marked against live prices.</p>
+  <p><strong>About these figures</strong></p>
   <p>
-    The route, navigation and shell are in place now so the information
-    architecture is reviewable before the data exists. See
-    <code>docs/architecture/phases.md</code> for the full plan.
+    Built from order fill events with average-cost accounting, and marked against the Market Data
+    Service's latest cached price — the same cache the risk gate reads. Realised P&L is net of fees
+    paid in the quote asset; a fee paid in another asset is not converted and is excluded.
+  </p>
+  <p>
+    Every position here is read against one fixed, caller-supplied trading account id — there is no
+    Identity Service yet, so this page is not scoped to a signed-in user. See
+    <code>docs/architecture/known-limitations.md</code>.
   </p>
 </div>

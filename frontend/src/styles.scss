@@ -148,6 +148,16 @@ a {
   font-variant-numeric: tabular-nums;
 }
 
+/* A P&L figure's sign is meaning, not decoration — the same restraint the
+   file header describes for badges. Zero stays the default text colour. */
+.pnl--positive {
+  color: var(--success-text);
+}
+
+.pnl--negative {
+  color: var(--danger-text);
+}
+
 .stat {
   display: flex;
   flex-direction: column;

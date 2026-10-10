@@ -65,7 +65,7 @@ public sealed class SourceConventionTests
             // Transport adapters stamping an AMQP timestamp on a message, and
             // the Redis provider computing an age against the wall clock.
             "RabbitMqEventPublisher.cs",
-            "Phase1Providers.cs"
+            "RedisMarketConditionProvider.cs"
         };
 
         var offenders = new List<string>();

@@ -34,6 +34,19 @@ public interface ICorrelationContext
 
     /// <summary>Originating AI agent run, when applicable.</summary>
     string? AgentRunId { get; }
+
+    /// <summary>
+    /// The inbound request's raw <c>Authorization</c> header value (e.g.
+    /// <c>Bearer eyJ...</c>), forwarded verbatim by this service's own
+    /// downstream HTTP clients (<c>RiskServiceClient</c>,
+    /// <c>ExecutionServiceClient</c>, <c>PortfolioServiceClient</c>) so a
+    /// service-to-service call carries the same identity the gateway already
+    /// authenticated — delegation, not a separately minted service token.
+    /// Null for a message-consumer context, which has no inbound HTTP
+    /// request to forward. Never written to a log: see the explicit
+    /// omission in <c>CorrelationMiddleware</c>.
+    /// </summary>
+    string? AuthorizationHeader { get; }
 }
 
 /// <summary>Mutable <see cref="ICorrelationContext"/> populated by middleware or a message consumer.</summary>
@@ -44,4 +57,6 @@ public sealed class CorrelationContext : ICorrelationContext
     public string RequestId { get; set; } = string.Empty;
 
     public string? AgentRunId { get; set; }
+
+    public string? AuthorizationHeader { get; set; }
 }

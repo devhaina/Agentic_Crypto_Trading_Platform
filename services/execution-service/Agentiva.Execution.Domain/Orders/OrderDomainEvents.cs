@@ -106,6 +106,7 @@ public sealed record OrderPartiallyFilledDomainEvent : DomainEvent
     public OrderPartiallyFilledDomainEvent(
         DateTimeOffset occurredAt,
         Guid orderId,
+        Guid tradingAccountId,
         string symbol,
         decimal cumulativeFilledQuantity,
         decimal remainingQuantity,
@@ -115,6 +116,7 @@ public sealed record OrderPartiallyFilledDomainEvent : DomainEvent
         : base(occurredAt)
     {
         OrderId = orderId;
+        TradingAccountId = tradingAccountId;
         Symbol = symbol;
         CumulativeFilledQuantity = cumulativeFilledQuantity;
         RemainingQuantity = remainingQuantity;
@@ -126,6 +128,8 @@ public sealed record OrderPartiallyFilledDomainEvent : DomainEvent
     public override string EventType => EventTypes.Orders.PartiallyFilled;
 
     public Guid OrderId { get; }
+
+    public Guid TradingAccountId { get; }
 
     public string Symbol { get; }
 
@@ -147,6 +151,7 @@ public sealed record OrderFilledDomainEvent : DomainEvent
         DateTimeOffset occurredAt,
         Guid orderId,
         Guid tradingIntentId,
+        Guid tradingAccountId,
         string symbol,
         string side,
         decimal filledQuantity,
@@ -161,6 +166,7 @@ public sealed record OrderFilledDomainEvent : DomainEvent
     {
         OrderId = orderId;
         TradingIntentId = tradingIntentId;
+        TradingAccountId = tradingAccountId;
         Symbol = symbol;
         Side = side;
         FilledQuantity = filledQuantity;
@@ -178,6 +184,8 @@ public sealed record OrderFilledDomainEvent : DomainEvent
     public Guid OrderId { get; }
 
     public Guid TradingIntentId { get; }
+
+    public Guid TradingAccountId { get; }
 
     public string Symbol { get; }
 

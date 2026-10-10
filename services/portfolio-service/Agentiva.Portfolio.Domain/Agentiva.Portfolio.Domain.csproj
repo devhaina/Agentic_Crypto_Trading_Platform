@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Agentiva.Portfolio.Domain</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <!--
+    No EF Core, no ASP.NET, no messaging, no Npgsql. The position cost-basis
+    and realised-P&L arithmetic is the part of this service that must stay
+    provable without a database or a broker, the same discipline
+    Agentiva.Execution.Domain applies to the order state machine.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\building-blocks\Agentiva.BuildingBlocks.Common\Agentiva.BuildingBlocks.Common.csproj" />
+    <ProjectReference Include="..\..\..\src\building-blocks\Agentiva.BuildingBlocks.Domain\Agentiva.BuildingBlocks.Domain.csproj" />
+
+    <!-- Solely for the EventTypes routing-key constants; see the remarks on
+         the equivalent reference in Agentiva.Execution.Domain. -->
+    <ProjectReference Include="..\..\..\contracts\events\Agentiva.Contracts.Events\Agentiva.Contracts.Events.csproj" />
+  </ItemGroup>
+
+</Project>

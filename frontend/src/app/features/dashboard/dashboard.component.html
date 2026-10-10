@@ -70,26 +70,60 @@
 </section>
 
 <!-- ------------------------------------------------------------------------
-     Awaiting later phases. Explicitly empty rather than fabricated.
+     Portfolio — real, read from the Portfolio Service (Phase 6).
      ------------------------------------------------------------------------ -->
 <h2 style="margin-top: 1.75rem">Portfolio</h2>
 <section class="card-grid">
-  @for (panel of [
-    { label: 'Portfolio value', phase: 'Phase 6' },
-    { label: 'Today\'s P&L', phase: 'Phase 6' },
-    { label: 'Total P&L', phase: 'Phase 6' },
-    { label: 'Open positions', phase: 'Phase 6' },
-    { label: 'Exposure', phase: 'Phase 6' },
-    { label: 'Drawdown', phase: 'Phase 6' }
-  ]; track panel.label) {
+  @if (portfolio(); as snapshot) {
     <div class="card">
       <div class="stat">
-        <span class="stat-label">{{ panel.label }}</span>
-        <span class="stat-value" style="color: var(--text-muted)">—</span>
-        <span class="stat-note">Awaiting the Portfolio Service ({{ panel.phase }}).</span>
+        <span class="stat-label">Portfolio value</span>
+        <span class="stat-value">{{ snapshot.equity }}</span>
+        <span class="stat-note">Cash plus every open position, marked live.</span>
       </div>
     </div>
+    <div class="card">
+      <div class="stat">
+        <span class="stat-label">Today's P&L</span>
+        <span class="stat-value">{{ snapshot.dailyPnl }}</span>
+        <span class="stat-note">Realised since UTC midnight, plus open unrealised P&L.</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="stat">
+        <span class="stat-label">Open positions</span>
+        <span class="stat-value">{{ snapshot.openPositionCount }}</span>
+        <span class="stat-note"><a routerLink="/positions">View positions</a></span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="stat">
+        <span class="stat-label">Exposure</span>
+        <span class="stat-value">{{ snapshot.currentExposure }}</span>
+        <span class="stat-note">Notional of every open position, marked live.</span>
+      </div>
+    </div>
+  } @else {
+    <div class="card">
+      <div class="empty-state">The Portfolio Service has not reported a snapshot yet.</div>
+    </div>
   }
+  <div class="card">
+    <div class="stat">
+      <span class="stat-label">Total P&L</span>
+      <span class="stat-value" style="color: var(--text-muted)">—</span>
+      <span class="stat-note">
+        Lifetime realised P&L across closed positions is not yet surfaced on this snapshot.
+      </span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="stat">
+      <span class="stat-label">Drawdown</span>
+      <span class="stat-value" style="color: var(--text-muted)">—</span>
+      <span class="stat-note">Tracked in the equity-curve hypertable, not yet on this page.</span>
+    </div>
+  </div>
 </section>
 
 <!-- ------------------------------------------------------------------------

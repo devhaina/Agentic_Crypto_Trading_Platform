@@ -449,7 +449,6 @@ services:
       Services__RiskServiceUrl: http://risk-service:8080
       Services__ExecutionServiceUrl: http://execution-service:8080
       Services__PortfolioServiceUrl: http://portfolio-service:8080
-      PaperPortfolio__StartingEquity: "10000"
     ports:
       - "${TRADING_HOST_PORT}:8080"
     depends_on:
@@ -460,6 +459,8 @@ services:
       rabbitmq:
         condition: service_healthy
       risk-service:
+        condition: service_started
+      portfolio-service:
         condition: service_started
     healthcheck: *dotnet-healthcheck
 
@@ -473,7 +474,6 @@ services:
     environment:
       <<: *dotnet-env
       ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=risk_db;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
-      PaperPortfolio__StartingEquity: "10000"
     ports:
       - "${RISK_HOST_PORT}:8080"
     depends_on:
@@ -527,10 +527,13 @@ services:
     environment:
       <<: *dotnet-env
       ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=portfolio_db;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      ConnectionStrings__Timescale: Host=timescaledb;Port=5432;Database=${TIMESCALE_DB:-market_db};Username=${TIMESCALE_USER};Password=${TIMESCALE_PASSWORD}
     ports:
       - "${PORTFOLIO_HOST_PORT}:8080"
     depends_on:
       postgres:
+        condition: service_healthy
+      timescaledb:
         condition: service_healthy
       redis:
         condition: service_healthy

@@ -1,16 +1,18 @@
 using Agentiva.BuildingBlocks.Messaging.RabbitMq;
 using Agentiva.BuildingBlocks.ServiceDefaults;
+using Agentiva.Portfolio.Api.Endpoints;
+using Agentiva.Portfolio.Infrastructure;
 
 // =============================================================================
 // Agentiva — Portfolio Service
 //
 // Maintains balances, positions, average entry prices, realised and
-// unrealised P&L, portfolio value and exposure from order and trade events.
+// unrealised P&L, portfolio value and exposure from order fill events.
 //
-// Phase 1 status: service skeleton. The host, configuration, observability,
-// health probes, OpenAPI document and event-bus connection are production
-// shaped and fully wired. The domain logic lands in Phase 6; see
-// docs/architecture/phases.md.
+// Phase 6: consumes order.filled/order.partiallyFilled, builds positions
+// and a cash balance from them with average-cost accounting, records closed
+// round trips, and serves the Trading Service's real portfolio snapshot and
+// the dashboard's real Positions page.
 // =============================================================================
 
 var builder = WebApplication.CreateBuilder(args);
@@ -20,14 +22,13 @@ builder.AddAgentivaServiceDefaults(
     displayName: "Portfolio Service",
     description: "Maintains balances, positions, average entry prices, realised and unrealised P&L, portfolio value and exposure from order and trade events.");
 
-// Connects to the event bus as a publisher. Subscriptions are added in Phase 6,
-// alongside the handlers that consume them — a queue bound to routing keys that
-// nothing drains would silently accumulate messages.
 builder.Services.AddAgentivaMessaging(builder.Configuration, "portfolio-service");
+builder.Services.AddPortfolioServices(builder.Configuration);
 
 var app = builder.Build();
 
 app.UseAgentivaServiceDefaults();
 app.MapAgentivaServiceInfo();
+app.MapPortfolioEndpoints();
 
 await app.RunAsync();

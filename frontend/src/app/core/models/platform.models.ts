@@ -19,6 +19,21 @@
 /** A decimal value transported as a string to preserve precision. */
 export type DecimalString = string;
 
+/**
+ * The trading account id this dashboard reads and writes against.
+ *
+ * There is no Identity or Account concept anywhere in the platform yet —
+ * `tradingAccountId` is a bare, caller-supplied GUID on every intent and
+ * every position, with no login or account-selection flow behind it. This
+ * placeholder GUID is the documented convention: whoever creates a trading
+ * intent for a real end-to-end demo should pass this same value so it shows
+ * up here. Deliberately not `Guid.Empty` (all zeros) — the Trading
+ * Service's own `CreateTradingIntentCommandValidator` rejects that value
+ * with `NotEmpty()`, a real bug this convention hit when first verified
+ * end-to-end. See docs/architecture/known-limitations.md.
+ */
+export const DEFAULT_TRADING_ACCOUNT_ID = '00000000-0000-0000-0000-000000000001';
+
 /** Execution mode. Enforced at the backend's execution boundary. */
 export type TradingMode = 'BACKTEST' | 'PAPER' | 'LIVE';
 
@@ -190,4 +205,32 @@ export interface AgentPermissions {
   readonly allowedReadOnlyTools: readonly string[];
   readonly forbiddenTools: readonly string[];
   readonly note: string;
+}
+
+/** Which side of the market a position is on. */
+export type PositionDirection = 'LONG' | 'SHORT' | 'FLAT';
+
+/** An account's equity, available cash, exposure and today's P&L. */
+export interface PortfolioSnapshot {
+  readonly equity: DecimalString;
+  readonly availableBalance: DecimalString;
+  readonly currentExposure: DecimalString;
+  readonly currentSymbolExposure: DecimalString;
+  readonly openPositionCount: number;
+  readonly dailyPnl: DecimalString;
+}
+
+/** One open position, built from order fills and marked against a live price. */
+export interface Position {
+  readonly positionId: string;
+  readonly symbol: string;
+  readonly direction: PositionDirection;
+  readonly quantity: DecimalString;
+  readonly averageEntryPrice: DecimalString;
+  readonly markPrice: DecimalString;
+  readonly realizedPnl: DecimalString;
+  readonly unrealizedPnl: DecimalString;
+  readonly quoteAsset: string;
+  readonly openedAt?: string;
+  readonly updatedAt: string;
 }

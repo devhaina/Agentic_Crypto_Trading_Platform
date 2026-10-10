@@ -1,88 +1,8 @@
-using System.ComponentModel.DataAnnotations;
 using Agentiva.Trading.Application.Abstractions;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using StackExchange.Redis;
 
 namespace Agentiva.Trading.Infrastructure.Providers;
-
-/// <summary>Paper-trading baseline used until the Portfolio Service holds real state.</summary>
-public sealed class PaperPortfolioOptions
-{
-    public const string SectionName = "PaperPortfolio";
-
-    /// <summary>Starting equity for paper trading, in the quote asset.</summary>
-    [Range(typeof(decimal), "0", "100000000")]
-    public decimal StartingEquity { get; set; } = 10_000m;
-}
-
-/// <summary>
-/// Supplies a portfolio snapshot for the risk gate.
-/// </summary>
-/// <remarks>
-/// <para>
-/// Phase 4 replaced the Phase 1 hardcoded baseline with an operator-adjustable
-/// one: <see cref="GetAsync"/> reads <see cref="IPaperLedgerStore"/> first —
-/// a Redis-backed value an operator can set through an authenticated endpoint
-/// — and falls back to <see cref="ConfiguredBaseline"/> only when nothing has
-/// been set. This is still simulated state, not a real portfolio: nothing
-/// here tracks fills or derives exposure from actual trades. The Portfolio
-/// Service has no data until Phase 6, and this provider is replaced outright
-/// then, not extended.
-/// </para>
-/// <para>
-/// <c>CurrentSymbolExposure</c> on the returned snapshot is always
-/// zero regardless of source — a real per-symbol figure needs real position
-/// tracking, which this ledger deliberately does not attempt. See
-/// docs/architecture/known-limitations.md.
-/// </para>
-/// </remarks>
-public sealed class PaperPortfolioSnapshotProvider(
-    IOptions<PaperPortfolioOptions> options,
-    IPaperLedgerStore ledgerStore,
-    ILogger<PaperPortfolioSnapshotProvider> logger)
-    : IPortfolioSnapshotProvider, IPaperLedgerDefaults
-{
-    private readonly PaperPortfolioOptions _options = options.Value;
-    private bool _warned;
-
-    public async Task<PortfolioSnapshotDto> GetAsync(string symbol, CancellationToken cancellationToken)
-    {
-        var ledger = await ledgerStore.GetAsync(cancellationToken);
-
-        if (ledger is null)
-        {
-            if (!_warned)
-            {
-                _warned = true;
-
-                logger.LogWarning(
-                    "No operator-set paper ledger exists; using the configured baseline ({Equity} "
-                    + "equity, zero exposure). Set one with PUT /api/v1/trading/paper-ledger.",
-                    _options.StartingEquity);
-            }
-
-            ledger = ConfiguredBaseline();
-        }
-
-        return new PortfolioSnapshotDto(
-            Equity: ledger.Equity,
-            AvailableBalance: ledger.AvailableBalance,
-            CurrentExposure: ledger.CurrentExposure,
-            CurrentSymbolExposure: 0m,
-            OpenPositionCount: ledger.OpenPositionCount,
-            DailyPnl: ledger.DailyPnl);
-    }
-
-    public PaperLedgerDto ConfiguredBaseline() => new(
-        Equity: _options.StartingEquity,
-        AvailableBalance: _options.StartingEquity,
-        CurrentExposure: 0m,
-        OpenPositionCount: 0,
-        DailyPnl: 0m,
-        UpdatedAt: default,
-        UpdatedBy: "SYSTEM");
-}
 
 /// <summary>
 /// Reports market conditions from the Redis market-data cache.

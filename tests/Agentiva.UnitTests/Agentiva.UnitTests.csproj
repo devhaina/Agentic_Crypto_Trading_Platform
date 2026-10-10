@@ -18,6 +18,8 @@
     <ProjectReference Include="..\..\services\strategy-service\Agentiva.Strategy.Domain\Agentiva.Strategy.Domain.csproj" />
     <ProjectReference Include="..\..\services\execution-service\Agentiva.Execution.Domain\Agentiva.Execution.Domain.csproj" />
     <ProjectReference Include="..\..\services\execution-service\Agentiva.Execution.Application\Agentiva.Execution.Application.csproj" />
+    <ProjectReference Include="..\..\services\portfolio-service\Agentiva.Portfolio.Domain\Agentiva.Portfolio.Domain.csproj" />
+    <ProjectReference Include="..\..\services\portfolio-service\Agentiva.Portfolio.Application\Agentiva.Portfolio.Application.csproj" />
   </ItemGroup>
 
   <ItemGroup>

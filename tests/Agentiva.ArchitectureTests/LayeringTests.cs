@@ -29,6 +29,8 @@ public sealed class LayeringTests
     private static Assembly StrategyApplication => typeof(Strategy.Application.Queries.GetRecentSignalsQuery).Assembly;
     private static Assembly ExecutionDomain => typeof(Execution.Domain.Orders.Order).Assembly;
     private static Assembly ExecutionApplication => typeof(Execution.Application.Orders.SubmitOrderCommand).Assembly;
+    private static Assembly PortfolioDomain => typeof(Portfolio.Domain.Positions.Position).Assembly;
+    private static Assembly PortfolioApplication => typeof(Portfolio.Application.Positions.GetPositionsQuery).Assembly;
     private static Assembly BuildingBlocksDomain => typeof(Symbol).Assembly;
 
     /// <summary>
@@ -135,6 +137,25 @@ public sealed class LayeringTests
 
         executionResult.IsSuccessful.ShouldBeTrue(
             FailureMessage(executionResult, "references the trading service"));
+
+        // The Portfolio Service consumes order events (shared contracts only)
+        // and is called over HTTP by the Trading Service — neither direction
+        // should ever become an assembly dependency.
+        var portfolioTradingResult = Types.InAssembly(PortfolioDomain)
+            .ShouldNot()
+            .HaveDependencyOnAny("Agentiva.Trading")
+            .GetResult();
+
+        portfolioTradingResult.IsSuccessful.ShouldBeTrue(
+            FailureMessage(portfolioTradingResult, "references the trading service"));
+
+        var portfolioExecutionResult = Types.InAssembly(PortfolioDomain)
+            .ShouldNot()
+            .HaveDependencyOnAny("Agentiva.Execution")
+            .GetResult();
+
+        portfolioExecutionResult.IsSuccessful.ShouldBeTrue(
+            FailureMessage(portfolioExecutionResult, "references the execution service"));
     }
 
     /// <summary>
@@ -192,6 +213,7 @@ public sealed class LayeringTests
         { "MarketData.Domain", MarketDataDomain },
         { "Strategy.Domain", StrategyDomain },
         { "Execution.Domain", ExecutionDomain },
+        { "Portfolio.Domain", PortfolioDomain },
         { "BuildingBlocks.Domain", BuildingBlocksDomain }
     };
 
@@ -201,7 +223,8 @@ public sealed class LayeringTests
         { "Trading.Application", TradingApplication },
         { "MarketData.Application", MarketDataApplication },
         { "Strategy.Application", StrategyApplication },
-        { "Execution.Application", ExecutionApplication }
+        { "Execution.Application", ExecutionApplication },
+        { "Portfolio.Application", PortfolioApplication }
     };
 
     internal static string FailureMessage(NetArchTest.Rules.TestResult result, string problem)

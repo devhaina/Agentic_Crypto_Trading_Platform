@@ -13,21 +13,24 @@ AI Agents → Trading Proposal → Trading Service → Risk Service → APPROVED
 never execute. See [`docs/architecture/overview.md`](docs/architecture/overview.md)
 for the full security boundary.
 
-## Status: Phase 5 — Trading & Execution
+## Status: Phase 6 — Portfolio
 
-This is the fifth deliverable in an eleven-phase plan (see
-[`docs/architecture/phases.md`](docs/architecture/phases.md)). Phases 1–5 ship:
+This is the sixth deliverable in an eleven-phase plan (see
+[`docs/architecture/phases.md`](docs/architecture/phases.md)). Phases 1–6 ship:
 
 - A compiling, runnable microservice skeleton for all 13 .NET services, the AI
   agent platform, and the Angular dashboard.
-- **Full working logic** in five services: **Risk Service** (deterministic
+- **Full working logic** in six services: **Risk Service** (deterministic
   position sizing, the full risk-check gate, policy CRUD, the kill switch),
   **Trading Service** (the intent → risk → execution workflow), **Market
   Data Service** (Binance WebSocket ingestion, normalisation, staleness
   detection), **Strategy Service** (the indicator engine and three
-  deterministic strategies), and **Execution Service** (a signed Binance
-  REST client gated by trading mode, the order state machine, and the real
-  duplicate-order check the other four now depend on).
+  deterministic strategies), **Execution Service** (a signed Binance REST
+  client gated by trading mode, the order state machine, and the real
+  duplicate-order check the other services now depend on), and **Portfolio
+  Service** (average-cost position tracking, real P&L and exposure built
+  from order fills, the real portfolio snapshot the Trading Service's risk
+  workflow now reads).
 - The complete AI agent platform: five analysis agents, a strategy agent, an
   orchestration graph, a deterministic stub LLM provider (no vendor account
   needed), and the enforced tool-permission boundary.
@@ -35,7 +38,7 @@ This is the fifth deliverable in an eleven-phase plan (see
   TimescaleDB, Redis, RabbitMQ (with per-service retry/dead-letter topology),
   OpenTelemetry → Prometheus/Grafana/Loki, Docker Compose, and Kubernetes
   manifests.
-- 165 unit tests and 19 architecture tests, plus a separate
+- 178 unit tests and 21 architecture tests, plus a separate
   Testcontainers-backed integration suite — see [Testing](#testing) below.
 
 Everything else is a compiling skeleton with a documented "lands in Phase N"
@@ -153,22 +156,27 @@ provider.
 
 Documented in full at
 [`docs/architecture/known-limitations.md`](docs/architecture/known-limitations.md).
-In brief: the Trading Service's paper-trading ledger (Phase 4) is now
-operator-adjustable via an authenticated endpoint rather than a hardcoded
-constant, but it is still simulated — Phase 5 added the real fills; a real
-portfolio still needs real position tracking (Portfolio Service, Phase 6);
-the Risk Service's duplicate-order check is real as of Phase 5 (it calls the
-Execution Service's own order store) but fails closed rather than retried
-when that service is unreachable; the Market Data Service (Phase 2)
+In brief: the Trading Service's old operator-adjustable paper ledger is gone
+— the Portfolio Service (Phase 6) now derives equity, cash, exposure and
+P&L from real order fills, with average-cost position tracking and a real
+per-symbol exposure figure the paper ledger could never report; an
+unreachable Portfolio Service fails the intent closed rather than feeding
+the risk gate a fabricated snapshot; account-level `PortfolioUpdated`/
+`PnlUpdated` events are not yet published, only position/balance/trade
+ones, and nothing yet traces a signal to the trade it produced for a win
+rate. The Risk Service's duplicate-order check is real as of Phase 5 (it
+calls the Execution Service's own order store) but fails closed rather than
+retried when that service is unreachable; the Market Data Service (Phase 2)
 connects to Binance's public streams, a separate path from the Execution
 Service (Phase 5), which is the only service that holds trading credentials
 and, only in `Live` mode, places a real order; an order left resting on the
 exchange book has no consumer yet to advance its intent asynchronously; the
 Strategy Service's (Phase 3) candle buffer warms up from nothing on every
-restart, and its performance endpoint reports signal counts only, not a win
-rate; the kill switch (Phase 4) has no durable record beyond its own
-published event, and engaging it does not yet cancel resting orders — see
-known-limitations.md for why.
+restart; the kill switch (Phase 4) has no durable record beyond its own
+published event, and engaging it does not yet cancel resting orders; every
+position and intent on the dashboard is read against one fixed,
+caller-supplied trading account id, since there is no Identity Service or
+account-selection UI yet — see known-limitations.md for why.
 
 ## Documentation
 

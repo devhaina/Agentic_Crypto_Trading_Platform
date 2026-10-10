@@ -65,6 +65,8 @@ public sealed record OrderPartiallyFilled : IntegrationEvent
 
     public required Guid OrderId { get; init; }
 
+    public required Guid TradingAccountId { get; init; }
+
     public required string Symbol { get; init; }
 
     /// <summary>Cumulative filled quantity, not the increment, so the event is idempotent.</summary>
@@ -88,6 +90,8 @@ public sealed record OrderFilled : IntegrationEvent
     public required Guid OrderId { get; init; }
 
     public required Guid TradingIntentId { get; init; }
+
+    public required Guid TradingAccountId { get; init; }
 
     public required string Symbol { get; init; }
 

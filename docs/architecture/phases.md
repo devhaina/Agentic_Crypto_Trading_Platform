@@ -131,12 +131,13 @@ Implemented in order; each phase builds on what the last one shipped. See
   value wholesale and two writers sharing one key would race on every
   update.
 - The portfolio provider: an operator-adjustable paper ledger
-  (`GET`/`PUT /trading/paper-ledger`, `POST /trading/paper-ledger/reset`)
-  replaces the Phase 1 hardcoded baseline. Deliberately not a real portfolio
-  — nothing tracks fills or derives exposure from actual trades, and
-  per-symbol exposure still always reports zero. Genuine portfolio truth
-  needs real fills (Execution Service, Phase 5) and real position tracking
-  (Portfolio Service, Phase 6); this is a Redis-backed, fail-safe-default
+  (`GET`/`PUT /trading/paper-ledger`, `POST /trading/paper-ledger/reset`,
+  since removed outright — see Phase 6) replaces the Phase 1 hardcoded
+  baseline. Deliberately not a real portfolio — nothing tracks fills or
+  derives exposure from actual trades, and per-symbol exposure still always
+  reports zero. Genuine portfolio truth needs real fills (Execution Service,
+  Phase 5) and real position tracking (Portfolio Service, Phase 6); at the
+  time, this is a Redis-backed, fail-safe-default
   value an operator can move in the meantime, the same shape as the kill
   switch.
 
@@ -184,12 +185,54 @@ Implemented in order; each phase builds on what the last one shipped. See
   `Failed` from the synchronous response — see
   docs/architecture/known-limitations.md for what that does not yet cover
   (an order left resting on the book).
+- Also scheduled here: the **Audit Service** (append-only record of every
+  financial decision — see its own `Program.cs`). Not built in this pass;
+  it remains the Phase 1 skeleton — see `overview.md`'s service table.
 
-## Phase 6 — Portfolio
+## Phase 6 — Portfolio (delivered)
 
-Position and balance tracking from `order.filled`/`trade.completed` events;
-real P&L; the real `IPortfolioSnapshotProvider` the Trading Service currently
-stubs; reconciliation's first real comparison target.
+- `Position` aggregate (`Agentiva.Portfolio.Domain`): average-cost accounting
+  per `(TradingAccountId, Symbol)`. Every fill that extends the current side
+  re-derives one weighted-average entry price; every reducing fill realises
+  P&L against that average, never against individual historical fills — the
+  same simplification most retail exchanges themselves report against.
+  Direction-generic (`Long`/`Short`/`Flat`) even though the platform is
+  long-only in practice today, so the arithmetic does not silently misbehave
+  if that ever changes; an overshooting fill closes the round trip and flips
+  straight into a new one on the opposite side.
+- `PortfolioAccount` aggregate: the quote-asset cash balance a deposit-less
+  platform has to start somewhere — seeded from a configured baseline on
+  first fill, the same role `PaperPortfolioOptions.StartingEquity` played
+  before this service existed. A buy spends notional plus fee; a sell
+  receives notional minus fee; never rejects a fill for insufficient cash,
+  because this aggregate records what the exchange already did.
+- `Trade`: the queryable record of each completed round trip (the outbox is
+  a delivery mechanism, not a store), behind the daily and lifetime P&L sums.
+- Event consumption: `order.filled` and `order.partiallyFilled` (Phase 5)
+  drive both aggregates in one unit of work, through the same inbox-dedup
+  discipline `MarketCandleCreatedHandler` established in Phase 3.
+- The real `IPortfolioSnapshotProvider`: the Trading Service now calls the
+  Portfolio Service over HTTP for equity, available cash, total and
+  per-symbol exposure (marked against the Market Data Service's live tick
+  cache) and today's P&L — replacing the Phase 1/4 paper ledger outright,
+  per that provider's own long-standing remarks. An unreachable Portfolio
+  Service fails the intent closed (`RiskUnavailable`), the same discipline
+  as an unreachable risk gate — never a fabricated snapshot.
+- A read API (`GET /api/v1/portfolio/positions`, `/snapshot`) lighting up
+  the dashboard's real Positions page, and an equity-curve point written to
+  the `portfolio_snapshots` hypertable (Phase 1, empty until now) on every
+  processed fill, with a peak-to-trough drawdown computed against it.
+- What this phase does not cover: no consumer yet advances an intent left
+  `Executing` when an order rests on the book rather than filling
+  synchronously, and `PortfolioUpdated`/`PnlUpdated` are not yet published
+  as events (only `PositionUpdated`, `BalanceUpdated` and `TradeCompleted`
+  are) — see docs/architecture/known-limitations.md.
+- Also scheduled here per the original MVP roadmap
+  (`docs/sdlc/23-MVP-Roadmap.md`): the **Reconciliation Service** (periodic
+  comparison of internal state against the exchange; disables trading and
+  raises a critical alert on any mismatch, rather than silently repairing
+  financial state). Not built in this pass; it remains the Phase 1
+  skeleton — see `overview.md`'s service table.
 
 ## Phase 7 — AI (data sources)
 

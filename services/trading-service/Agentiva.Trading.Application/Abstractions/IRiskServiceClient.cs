@@ -101,14 +101,17 @@ public sealed record RiskDecisionResult(
 /// Supplies the portfolio snapshot the risk gate measures a trade against.
 /// </summary>
 /// <remarks>
-/// Phase 1 returns a configured paper-trading baseline, because the Portfolio
-/// Service has no data until Phase 6. From Phase 6 this calls the Portfolio
-/// Service. Keeping it behind an interface means the trading workflow does not
-/// change when the real source arrives.
+/// Real as of Phase 6: calls the Portfolio Service, which derives every
+/// field from actual fills rather than an operator-set baseline. Returns a
+/// <see cref="Result"/> rather than a bare DTO, unlike the Phase 1-5
+/// signature it replaced, because an unreachable Portfolio Service must be
+/// something the caller can fail closed on — a fabricated snapshot would
+/// feed the risk gate false confidence instead of no confidence.
 /// </remarks>
 public interface IPortfolioSnapshotProvider
 {
-    Task<PortfolioSnapshotDto> GetAsync(string symbol, CancellationToken cancellationToken);
+    Task<Result<PortfolioSnapshotDto>> GetAsync(
+        Guid tradingAccountId, string symbol, CancellationToken cancellationToken);
 }
 
 /// <summary>

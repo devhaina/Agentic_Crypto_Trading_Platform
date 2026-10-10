@@ -29,7 +29,9 @@ public sealed class FinancialSafetyTests
         typeof(Strategy.Domain.Entities.Signal).Assembly,
         typeof(Strategy.Application.Queries.GetRecentSignalsQuery).Assembly,
         typeof(Execution.Domain.Orders.Order).Assembly,
-        typeof(Execution.Application.Orders.SubmitOrderCommand).Assembly
+        typeof(Execution.Application.Orders.SubmitOrderCommand).Assembly,
+        typeof(Portfolio.Domain.Positions.Position).Assembly,
+        typeof(Portfolio.Application.Positions.GetPositionsQuery).Assembly
     ];
 
     /// <summary>
@@ -146,13 +148,7 @@ public sealed class FinancialSafetyTests
             // an already-engaged switch, or releasing an already-released
             // one, both leave the same end state) and never itself a trade.
             nameof(Risk.Application.Operations.EngageKillSwitchCommand),
-            nameof(Risk.Application.Operations.ReleaseKillSwitchCommand),
-
-            // Paper-ledger admin: sets simulated portfolio state the risk
-            // gate reads, but moves no real money and reaches no exchange —
-            // see the remarks on PaperPortfolioSnapshotProvider.
-            nameof(Trading.Application.Ledger.SetPaperLedgerCommand),
-            nameof(Trading.Application.Ledger.ResetPaperLedgerCommand)
+            nameof(Risk.Application.Operations.ReleaseKillSwitchCommand)
         };
 
         foreach (var assembly in new[]

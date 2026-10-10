@@ -48,6 +48,14 @@ public sealed class RiskServiceClient(
             message.Headers.Add(CorrelationHeaders.AgentRunId, correlation.AgentRunId);
         }
 
+        // Delegation, not a separately minted service token: the risk gate
+        // sees the same identity the gateway already authenticated. See the
+        // remarks on ICorrelationContext.AuthorizationHeader.
+        if (!string.IsNullOrEmpty(correlation.AuthorizationHeader))
+        {
+            message.Headers.TryAddWithoutValidation("Authorization", correlation.AuthorizationHeader);
+        }
+
         try
         {
             using var response = await httpClient.SendAsync(message, cancellationToken);

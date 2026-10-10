@@ -5,24 +5,29 @@ This file collects them in one place so a reviewer does not have to find each
 comment individually. None of them weaken the AI trust boundary or the
 no-floating-point rule; they are scope limits, not safety shortcuts.
 
-## Trading Service uses an operator-adjustable paper ledger, not the real portfolio
+## The portfolio is real as of Phase 6, with two gaps in how it is announced
 
-`PaperPortfolioSnapshotProvider`
-(`services/trading-service/Agentiva.Trading.Infrastructure/Providers/Phase1Providers.cs`)
-reads a Redis-backed ledger an operator can set through
-`PUT /api/v1/trading/paper-ledger` (Phase 4), falling back to a configured
-starting equity with zero exposure and zero daily loss only when nothing has
-been set. This replaced the Phase 1 hardcoded constant, but it is still
-simulated state, not a real portfolio: nothing tracks fills or derives
-exposure from actual trades, and the risk gate's per-symbol exposure figure
-is always zero regardless of what the ledger holds. Practical effect
-unchanged from Phase 1: the exposure, concentration and daily-loss checks in
-the Risk Service cannot meaningfully bind to real trading history, because
-nothing here is derived from real trading history. The risk-per-trade,
-stop/take-profit, and sizing-precision checks are fully real regardless,
-since they do not depend on portfolio state. Phase 5 added the real fills
-(Execution Service); genuine portfolio truth still needs real position
-tracking from those fills (Portfolio Service, Phase 6).
+`PortfolioServiceClient` (Trading Service) replaced the Phase 1/4 paper
+ledger outright: `IPortfolioSnapshotProvider.GetAsync` now calls the
+Portfolio Service, which derives equity, available cash, total and
+per-symbol exposure, open position count and today's P&L from the `Position`
+and `PortfolioAccount` aggregates `order.filled`/`order.partiallyFilled`
+actually built — including a real per-symbol exposure figure, which the
+paper ledger could never report. An unreachable Portfolio Service fails the
+intent closed (`RiskUnavailable`), never a fabricated snapshot.
+
+Two things this real portfolio still does not do. First, `PortfolioUpdated`
+and `PnlUpdated` — the account-level contracts in
+`contracts/events/.../Portfolio/PortfolioEvents.cs` — are not published as
+events; only `PositionUpdated`, `BalanceUpdated` and `TradeCompleted` are,
+because the first two need a cross-aggregate read (every open position, at a
+live price) that does not naturally live on either aggregate's own
+`SaveChanges`. A consumer wanting a live portfolio-level delta today has to
+poll the snapshot endpoint. Second, `GetPortfolioSnapshotQueryHandler`'s
+`DailyPnl` adds *every* open position's current unrealised P&L to today's
+realised trades, not just today's price movement on positions that were
+already open at UTC midnight — an honest approximation absent a
+start-of-day mark snapshot, not a precise daily figure.
 
 ## The duplicate-order check is real as of Phase 5, with one gap
 
@@ -35,6 +40,20 @@ deterministic client-order-id scheme (`ClientOrderIdGenerator`, derived from
 the command's own idempotency key) is the second, independent line of
 defence the risk check's remarks describe.
 
+## `OrderPartiallyFilledHandler` treats a cumulative figure as an increment
+
+`OrderPartiallyFilled.CumulativeFilledQuantity` is cumulative across the
+order's whole life, not one delivery's increment — deliberately, so the
+event itself is idempotent on redelivery. The Portfolio Service's
+`OrderPartiallyFilledHandler` applies it to `Position`/`PortfolioAccount` as
+if it were the increment, which is only correct because no code path in the
+platform today raises more than one `OrderPartiallyFilled` per order —
+`SubmitOrderCommandHandler` derives it from a single synchronous placement
+response, never from a later poll. A future phase that makes a limit order
+rest and fill across several deliveries needs this handler to track each
+order's previously-applied cumulative quantity and apply only the
+difference; it does not yet, because nothing can exercise the gap today.
+
 ## A resting order has no path back to the intent that created it
 
 `CreateTradingIntentCommandHandler` advances the intent to `Executed` or
@@ -46,8 +65,10 @@ Backtest makes no exchange contact and Paper always fills instantly) leaves
 its intent parked at `Executing` indefinitely: no consumer in the Trading
 Service subscribes to `order.filled`/`order.partiallyFilled` to advance it
 later. `TradingIntentConfiguration`'s row-version comment anticipated this
-consumer; it does not exist yet, and building it is exactly the kind of work
-the Portfolio Service's event consumption (Phase 6) will also need.
+consumer; it still does not exist. Phase 6 built the identical
+shape of consumer for the Portfolio Service's own aggregates
+(`OrderFilledHandler`, `OrderPartiallyFilledHandler`) — proof the pattern
+works, not a substitute for the Trading Service's own missing one.
 
 ## A real exchange connection exists as of Phase 5, gated by trading mode
 
@@ -130,12 +151,13 @@ boundary notes.
 Service) report total/buy/sell signal counts and first/last signal time —
 nothing else. A win rate, a Sharpe ratio, or any other outcome-based metric
 needs to know what actually happened to a signal after it was produced.
-Phase 5 added the filled order; nothing yet traces a signal to the intent
-and order it produced, and a realised P&L still needs position tracking
-(Phase 6) and/or backtesting (Phase 8). Reporting one now would be either
-fabricated or silently wrong, which is exactly the "no page anywhere
-displays a fabricated... P&L figure" rule below applied to an API response
-instead of a dashboard page.
+Realised P&L itself is real as of Phase 6 (`Position.RealizedPnl`,
+`Trade`), but nothing traces a signal to the intent, order and position it
+produced — `OrderFilled` carries no `SignalId`/`StrategyId`, so
+`TradeCompletedDomainEvent.SignalId`/`StrategyId` are always null. Reporting
+a win rate on this endpoint now would be either fabricated or silently
+wrong, which is exactly the "no page anywhere displays a fabricated... P&L
+figure" rule below applied to an API response instead of a dashboard page.
 
 ## The AI platform runs on a deterministic stub by default
 
@@ -147,23 +169,39 @@ provider is configured without an API key (`create_provider` in
 `agentiva_agents/llm/anthropic_provider.py` degrades to the stub and logs
 loudly rather than failing to start).
 
-## TimescaleDB: five of six hypertables are now populated
+## TimescaleDB: every hypertable is now populated
 
 `infrastructure/timescale/init/01-market-schema.sql` creates every hypertable.
 The Market Data Service writes `market_ticks`, `market_trades`,
 `market_candles` and `orderbook_snapshots` (Phase 2); the Strategy Service
-writes `indicator_snapshots` (Phase 3) into the same shared `market_db` — see
-the remarks on `IndicatorSnapshotWriter` for why one table in another
-service's connection string is table-level ownership, not a layering slip.
-`portfolio_snapshots` (Phase 6) remains provisioned but empty.
+writes `indicator_snapshots` (Phase 3); the Portfolio Service writes
+`portfolio_snapshots` (Phase 6, via `PortfolioSnapshotWriter`, one row per
+processed fill) — all into the same shared `market_db`. See the remarks on
+`IndicatorSnapshotWriter` for why a table in another service's connection
+string is table-level ownership, not a layering slip. `drawdown_percent` on
+each row is peak-to-trough against every `total_value` this account has
+ever recorded in the table, including rows from a prior deployment — there
+is no separate high-water-mark table kept in sync.
 
 ## Most dashboard pages are explicit placeholders
 
-Eleven of thirteen dashboard routes render a page stating plainly which phase
+Nine of thirteen dashboard routes render a page stating plainly which phase
 fills them and what that phase adds — see
-`frontend/src/app/features/*/*.component.html`. The Dashboard and AI Agents
-pages are fully live against real backend data. No page anywhere displays a
-fabricated balance, P&L figure, or position.
+`frontend/src/app/features/*/*.component.html`. The Dashboard, AI Agents and
+Positions pages are fully live against real backend data. No page anywhere
+displays a fabricated balance, P&L figure, or position.
+
+Every position and intent on these pages is read against one fixed,
+caller-supplied `tradingAccountId` (`DEFAULT_TRADING_ACCOUNT_ID`,
+`00000000-0000-0000-0000-000000000001`) rather than a logged-in user's own
+account — there is no Identity Service behind either page yet, and no
+account-selection UI. A trading intent created for a real end-to-end demo
+needs to be sent with that same account id for its resulting position to
+show up here. Deliberately not `Guid.Empty` (all zeros): a first attempt at
+this convention used that value and was rejected outright by
+`CreateTradingIntentCommandValidator`'s `NotEmpty()` check on
+`TradingAccountId` — caught only by actually creating an intent end-to-end
+through the real HTTP stack, not by any test or review.
 
 ## Identity Service issues no real tokens yet
 

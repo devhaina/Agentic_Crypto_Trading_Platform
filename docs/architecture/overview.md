@@ -59,7 +59,7 @@ Three independent mechanisms keep an AI agent from moving funds, not one:
 | **Trading Service** | Intent lifecycle, the intent→risk workflow | **Full** |
 | **Risk Service** | Risk policy, deterministic gate, position sizing | **Full** |
 | **Execution Service** | Exchange orders — the only service with credentials | **Full** |
-| Portfolio Service | Balances, positions, P&L | Skeleton |
+| **Portfolio Service** | Balances, positions, P&L | **Full** |
 | **Strategy Service** | Indicator engine, deterministic signals | **Full** |
 | Backtesting Service | Historical simulation | Skeleton |
 | Reconciliation Service | Exchange-vs-internal-state comparison | Skeleton |
@@ -116,6 +116,13 @@ later phase plugs into a real workflow instead of a planned one.
    in step 3's risk request is itself the Execution Service's own open-order
    check (`GET /api/v1/orders/open`), called just before step 3 — the real
    defence step 4's duplicate-order check actually measures.
+9. The Execution Service's `order.filled` event (or `order.partiallyFilled`)
+   reaches the Portfolio Service, which applies it to the symbol's `Position`
+   and the account's cash balance in one unit of work, records a closed
+   `Trade` if the fill closed one, and writes one row to the
+   `portfolio_snapshots` equity curve. The next intent's step 3 risk request
+   — and the Trading Service's own portfolio snapshot — reads this, not a
+   configured baseline.
 
 ## Further reading
 

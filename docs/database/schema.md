@@ -11,7 +11,7 @@ One database per owning service, provisioned by
 | `trading_db` | Trading | `trading_intents` + outbox/inbox/idempotency |
 | `risk_db` | Risk | `risk_policies`, `risk_checks` + outbox/inbox/idempotency |
 | `execution_db` | Execution | `orders` + outbox/inbox/idempotency |
-| `portfolio_db` | Portfolio | *(none yet — Phase 6)* |
+| `portfolio_db` | Portfolio | `positions`, `accounts`, `trades` + outbox/inbox/idempotency |
 | `strategy_db` | Strategy | `strategies`, `signals` + outbox/inbox/idempotency |
 | `agent_db` | *(reserved)* | Not currently used — the AI platform is stateless in Phase 1 |
 | `audit_db` | Audit | *(none yet — Phase 5)* |
@@ -54,10 +54,10 @@ One database, `market_db`, schema `market`, provisioned by
 time. Plus `instrument_precision`, a plain reference table caching exchange
 filters so the risk and execution services don't round-trip to the exchange
 per order. The first four are written by the Market Data Service (Phase 2);
-`indicator_snapshots` is written by the Strategy Service (Phase 3) into this
-same shared database — see known-limitations.md on why that is table-level
-ownership, not a layering slip. `portfolio_snapshots` (Phase 6) remains
-provisioned but empty.
+`indicator_snapshots` by the Strategy Service (Phase 3); `portfolio_snapshots`
+by the Portfolio Service (Phase 6, one row per processed fill) — all into
+this same shared database. See known-limitations.md on why that is
+table-level ownership, not a layering slip.
 
 ## The money type
 

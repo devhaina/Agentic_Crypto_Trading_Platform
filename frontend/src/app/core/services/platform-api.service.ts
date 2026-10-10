@@ -7,6 +7,8 @@ import {
   AgentPermissions,
   AgentRun,
   HealthResponse,
+  Position,
+  PortfolioSnapshot,
   RiskPolicy,
   ServiceInfo,
   TradingIntent,
@@ -77,6 +79,30 @@ export class PlatformApiService {
     return this.http
       .get<RiskPolicy[]>(`${this.baseUrl}/risk/policies`)
       .pipe(catchError(this.emptyList<RiskPolicy>()));
+  }
+
+  // --- Portfolio ------------------------------------------------------------
+
+  /**
+   * Lists open positions for a trading account.
+   *
+   * The platform has no account/identity concept yet — every intent and
+   * every position is keyed by a caller-supplied `tradingAccountId` with no
+   * login behind it. `DEFAULT_TRADING_ACCOUNT_ID` is the convention this
+   * dashboard and the test/demo tooling both use so a position shows up
+   * here at all; see docs/architecture/known-limitations.md.
+   */
+  listPositions(tradingAccountId: string): Observable<readonly Position[]> {
+    return this.http
+      .get<Position[]>(`${this.baseUrl}/portfolio/positions`, { params: { tradingAccountId } })
+      .pipe(catchError(this.emptyList<Position>()));
+  }
+
+  /** Reads an account's equity, available cash, exposure and today's P&L. */
+  getPortfolioSnapshot(tradingAccountId: string, symbol: string): Observable<PortfolioSnapshot | null> {
+    return this.http
+      .get<PortfolioSnapshot>(`${this.baseUrl}/portfolio/snapshot`, { params: { tradingAccountId, symbol } })
+      .pipe(catchError(() => of(null)));
   }
 
   // --- AI agents ----------------------------------------------------------

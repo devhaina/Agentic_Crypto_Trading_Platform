@@ -119,7 +119,26 @@ public sealed class CreateTradingIntentCommandHandler(
             _trading.EffectiveMode);
 
         // --- 3. Gather risk inputs ------------------------------------------------
-        var snapshot = await portfolio.GetAsync(symbol.Value, cancellationToken);
+        var snapshotResult = await portfolio.GetAsync(command.TradingAccountId, symbol.Value, cancellationToken);
+
+        if (snapshotResult.IsFailure)
+        {
+            // Fail closed, the same as an unreachable risk gate: a portfolio
+            // snapshot is a risk input, and a fabricated one would feed the
+            // gate false confidence rather than no confidence.
+            intent.MarkRiskUnavailable(snapshotResult.Error.ToString(), clock.UtcNow);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+
+            logger.LogError(
+                "Portfolio Service unavailable for intent {TradingIntentId}: {Reason}. "
+                + "The intent will not be executed.",
+                intent.Id,
+                snapshotResult.Error);
+
+            return Result.Success(ToResponse(intent));
+        }
+
+        var snapshot = snapshotResult.Value;
 
         // The real duplicate-order check: ask the Execution Service, which
         // owns the order store, rather than the Phase 1 hard-coded false. An
