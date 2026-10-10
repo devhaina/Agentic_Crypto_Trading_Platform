@@ -341,11 +341,58 @@ Implemented in order; each phase builds on what the last one shipped. See
   a job for a later phase. Walk-forward validation checks consistency across
   time, not parameter re-optimisation, for the reason above.
 
-## Phase 9 — Paper Trading
+## Phase 9 — Paper Trading (delivered)
 
-Run the complete system, Phase 1 through 8, with zero real funds at risk —
-the default `TRADING__MODE=PAPER` is already enforced at the execution
-boundary today.
+A verification phase, not a feature phase: brought up the complete 23-container
+stack (all 13 .NET services, the Angular dashboard, the Python AI platform, and
+the full Postgres/TimescaleDB/Redis/RabbitMQ/Grafana/Prometheus/Loki/OTel
+infrastructure) fresh, and exercised the whole system together for the first
+time since Phases 7 and 8 landed.
+
+- Every service independently reports `tradingMode: PAPER`; every committed
+  Binance credential is blank; `AllowLive`/`KillSwitchEnabled` are unset,
+  resolving to their safe coded defaults. Zero real funds were ever
+  reachable at any point in this verification.
+- Real Binance testnet connectivity confirmed live: all 10 WebSocket streams
+  connected, real ticks landed in Redis and TimescaleDB within seconds, and
+  a real price flowed all the way through the gateway's `/market` route.
+- **Found and fixed a severe, previously-undiscovered bug that would have
+  made real-shaped trading essentially non-functional**: `PositionSizer`
+  (Risk Service) validates its slippage-adjusted entry price against the
+  exchange's tick-size filter, but never rounded that price to a valid tick
+  first. A 0.05% slippage adjustment on a real BTC price (82813.46 →
+  82854.86673) almost never lands on a clean multiple of the tick size, so
+  the filter check failed for nearly every realistic price — misreported as
+  `BelowExchangeMinimum` (the position was never actually too small). Every
+  existing `PositionSizer` test used round fixture prices (100,000/98,000)
+  whose slippage adjustment happens to still land on a clean cent, so this
+  had never been exercised by a unit test. Found only by creating a real
+  trading intent against the live stack with a real market price. Fixed by
+  tick-rounding both the effective entry and effective stop in the same
+  adverse direction the slippage model itself already uses, with a
+  regression test using the exact real-world inputs that triggered it.
+- Verified the complete intent → risk → execution → portfolio chain against
+  the live stack after the fix: a real trading intent reached `Executed`
+  (PAPER mode, simulated fill), with the risk gate correctly reducing the
+  requested size to its own computed limit — and, separately, correctly
+  refusing an intent when that reduced size exceeded confidence in the
+  other direction (`trading.intent.approved_exceeds_requested`, the
+  pre-existing "risk may only shrink a position" invariant working exactly
+  as designed). The resulting portfolio position updated with the correct
+  weighted-average entry price. Idempotency replay (Phase 5/6's own
+  verified behaviour) re-confirmed intact: replaying the same key returned
+  the byte-identical cached response, not a second order.
+- Re-verified Phase 7's AI platform and Phase 8's Backtesting Service
+  through the gateway in this same full-stack context: the agent run called
+  the real `get_onchain_metrics`/`get_news` tools and reported honest
+  `INSUFFICIENT_DATA`/`NO_NEWS_SOURCE_CONFIGURED` rather than a fabricated
+  reading (the candle buffer had only just started warming up); the
+  Backtesting Service's list/get endpoints worked correctly once two
+  leftover pre-fix test rows from this session's own earlier Phase 8 work
+  were cleaned out of the persisted dev volume.
+- Zero unexpected `Error`/`Fatal` log lines across all 23 containers; the
+  dashboard, Grafana, Prometheus, and the RabbitMQ management UI all
+  reachable.
 
 ## Phase 10 — Dashboard (completion)
 

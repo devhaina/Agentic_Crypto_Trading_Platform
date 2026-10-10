@@ -59,12 +59,27 @@ public static class PositionSizer
         // A buy is assumed to fill above the reference price and its stop to
         // fill below it; a sell the reverse. Both move against the trader, which
         // is the only safe direction for a risk calculation to assume.
+        //
+        // Both are then rounded to the exchange's tick size. Without this, an
+        // adverse-slippage price almost never lands on a valid tick (0.05% of
+        // 82813.46 moves it to 82854.86673, nowhere near a multiple of 0.01),
+        // so step 6's exchange-filter check below would fail the tick-size
+        // test for nearly every real price — not because the position was too
+        // small, but because this internal risk-sizing artefact was never a
+        // price the exchange could actually quote. The rounding direction
+        // reuses the same "adverse" convention as the slippage model itself:
+        // never let normalisation make the worst case look better by even a
+        // fraction of a tick.
         var effectiveEntry = request.EntryPrice.WithAdverseSlippage(
             policy.SlippageAssumption, request.Side);
+        effectiveEntry = request.Precision.NormalizePrice(
+            effectiveEntry, request.Side == OrderSide.Buy ? OrderSide.Sell : OrderSide.Buy);
 
         var stopExitSide = request.Side == OrderSide.Buy ? OrderSide.Sell : OrderSide.Buy;
         var effectiveStop = request.StopLoss.WithAdverseSlippage(
             policy.SlippageAssumption, stopExitSide);
+        effectiveStop = request.Precision.NormalizePrice(
+            effectiveStop, stopExitSide == OrderSide.Buy ? OrderSide.Sell : OrderSide.Buy);
 
         var stopDistance = effectiveEntry.DistanceTo(effectiveStop);
 

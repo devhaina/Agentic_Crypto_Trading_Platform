@@ -246,6 +246,36 @@ public sealed class PositionSizerTests
     }
 
     /// <summary>
+    /// A real production-shaped bug, caught only by actually creating a
+    /// trading intent against a live stack with a real BTC price rather than
+    /// a round test fixture: the adverse-slippage price (0.05% of 82813.46 is
+    /// 82854.86673) almost never lands on a valid tick, so the exchange-filter
+    /// check at the end of <see cref="PositionSizer.Calculate"/> rejected
+    /// every realistic price as <see cref="SizingConstraint.BelowExchangeMinimum"/>
+    /// — a misleading reason, since the actual problem was that an internal
+    /// risk-sizing artefact was never a price the exchange could quote, not
+    /// that the position was genuinely too small. Every existing test above
+    /// this one uses a round entry/stop (100,000/98,000), whose slippage
+    /// adjustment happens to still land on a clean cent and never exercised
+    /// this path.
+    /// </summary>
+    [Fact]
+    public void A_realistic_non_round_price_is_still_tradeable()
+    {
+        var result = PositionSizer.Calculate(Request(
+            entry: 82813.46m,
+            stop: 81500m,
+            equity: 10_655.376148m,
+            available: 9_000.00025m,
+            exposure: 1_655.3758980m,
+            symbolExposure: 1_655.3758980m));
+
+        result.IsTradeable.ShouldBeTrue();
+        result.Quantity.IsZero.ShouldBeFalse();
+        (result.EffectiveEntryPrice.Value % TestFixtures.BtcUsdtPrecision.TickSize).ShouldBe(0m);
+    }
+
+    /// <summary>
     /// A stop at the entry price has no risk denominator.
     /// </summary>
     /// <remarks>
