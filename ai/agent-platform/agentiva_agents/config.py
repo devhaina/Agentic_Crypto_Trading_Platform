@@ -60,6 +60,16 @@ class Settings(BaseSettings):
     gateway_base_url: str = "http://api-gateway:8080"
     gateway_timeout_seconds: int = Field(default=10, ge=1, le=60)
 
+    # --- External read-only data sources -----------------------------------
+    #
+    # Both of these are outbound calls to third-party public APIs, not to the
+    # platform's own services — still read-only, still no credential that
+    # could touch an exchange. An empty news_api_key means get_news reports
+    # "not_configured" rather than attempting a call that would only 401.
+    news_api_key: str = ""
+    news_base_url: str = "https://min-api.cryptocompare.com"
+    onchain_base_url: str = "https://api.blockchain.info"
+
     # --- Infrastructure ---------------------------------------------------
     redis_url: str = ""
     rabbitmq_url: str = ""

@@ -234,11 +234,38 @@ Implemented in order; each phase builds on what the last one shipped. See
   financial state). Not built in this pass; it remains the Phase 1
   skeleton — see `overview.md`'s service table.
 
-## Phase 7 — AI (data sources)
+## Phase 7 — AI (data sources) (delivered)
 
-Approved news source behind `get_news`; the Anthropic provider exercised
-against a real model (the abstraction and the fallback-to-stub logic already
-exist); on-chain metrics where available.
+- `get_news` behind a real `NewsClient` (CryptoCompare/CoinDesk Data API):
+  returns `not_configured` with zero network calls when no key is set (the
+  committed default, since the service now gates all usage behind a key —
+  verified directly against the live endpoint, not assumed), and
+  `unavailable` on any failure with a key configured, never a fabricated
+  headline. The sentiment agent's stub rule was rewritten from an
+  always-zero placeholder to real keyword-based scoring over the returned
+  headlines.
+- `get_onchain_metrics` behind a real `OnChainClient` (blockchain.info's
+  keyless `/stats` endpoint — confirmed live and genuinely free). Scoped to
+  Bitcoin only, honestly reporting `available: false` for any other asset
+  rather than a fabricated figure; wired into `MarketAgent.required_tools`.
+- The Anthropic provider now actually runs against a real model: the
+  Dockerfile and CI were installing only the base package, so the
+  `anthropic` SDK was never present in a built image and the real-model path
+  had never actually executed. Fixed by installing the `anthropic` extra.
+  That exposed a second, real bug underneath it — the installed SDK's
+  Messages API no longer accepts a `temperature` argument at all, so every
+  real-model call would have raised `TypeError` before reaching the network.
+  Both are fixed and verified end to end with a live (if unauthorized)
+  request that reaches Anthropic's API and gets a real `401`, not a local
+  parameter error.
+- What this phase does not cover: the exact authentication parameter name
+  for the news API could not be confirmed against a real key (implemented
+  as the most-documented convention, `api_key` as a query parameter, with
+  graceful degradation if it is wrong); and the pre-existing mismatch
+  between the AI platform's `get_portfolio`/`get_positions` tools and the
+  real Phase 6 Portfolio Service endpoints (wrong path, missing
+  `tradingAccountId`) remains unfixed — out of this phase's scope, flagged
+  in known-limitations.md.
 
 ## Phase 8 — Backtesting
 

@@ -159,6 +159,31 @@ a win rate on this endpoint now would be either fabricated or silently
 wrong, which is exactly the "no page anywhere displays a fabricated... P&L
 figure" rule below applied to an API response instead of a dashboard page.
 
+## The news tool's exact auth convention is an educated guess
+
+`NewsClient` (`agentiva_agents/tools/news_tools.py`, Phase 7) sends the
+configured key as an `api_key` query parameter to CryptoCompare/CoinDesk
+Data API — the most-documented convention for this API family, but it could
+not be confirmed against a real key: every parameter-name and header
+variant tried against the live endpoint returned the identical generic 401,
+so there was nothing to distinguish a wrong guess from a wrong key. If this
+guess is wrong, the practical effect is `get_news` reporting `unavailable`
+instead of real headlines — the same fail-safe outcome as the key being
+revoked or the service being down, never a crash or a fabricated result.
+
+## `get_portfolio`/`get_positions` do not match the real Phase 6 endpoints
+
+`register_market_tools` (`agentiva_agents/tools/market_tools.py`) calls
+`GET /portfolio/summary` for `get_portfolio`, and neither tool passes a
+`tradingAccountId`. The real Portfolio Service built in Phase 6 has no
+`/summary` route — only `/positions` and `/snapshot` — and both require
+`tradingAccountId` as a query parameter (see the dashboard's own
+`DEFAULT_TRADING_ACCOUNT_ID` convention above). `PlatformReadClient.get()`
+fails safe on the resulting 404 (returns `{}`), so the portfolio agent has
+likely never seen real portfolio data through the gateway — a gap that
+predates Phase 7 and is flagged here rather than fixed, since closing it is
+a Trading Service / gateway routing change outside Phase 7's scope.
+
 ## The AI platform runs on a deterministic stub by default
 
 `AI_LLM_PROVIDER=stub` is the default in every committed environment file.

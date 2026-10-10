@@ -100,6 +100,7 @@ READ_ONLY_TOOL_NAMES: Final[frozenset[str]] = frozenset(
         "get_news",
         "get_recent_signals",
         "get_risk_policy",
+        "get_onchain_metrics",
     }
 )
 

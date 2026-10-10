@@ -49,6 +49,9 @@ def build_registry(indicators: dict[str, Any], portfolio: dict[str, Any] | None 
     async def get_risk_policy() -> dict[str, Any]:
         return {"minConfidencePercent": "60"}
 
+    async def get_onchain_metrics(symbol: str) -> dict[str, Any]:
+        return {"available": False}
+
     registry.register("get_market_data", "Ticker.", get_market_data,
                       {"symbol": {"type": "string", "required": True}})
     registry.register("get_candles", "Candles.", get_candles,
@@ -59,6 +62,8 @@ def build_registry(indicators: dict[str, Any], portfolio: dict[str, Any] | None 
     registry.register("get_positions", "Positions.", get_positions)
     registry.register("get_news", "News.", get_news)
     registry.register("get_risk_policy", "Risk policy.", get_risk_policy)
+    registry.register("get_onchain_metrics", "On-chain metrics.", get_onchain_metrics,
+                      {"symbol": {"type": "string", "required": True}})
     registry.seal()
 
     return registry

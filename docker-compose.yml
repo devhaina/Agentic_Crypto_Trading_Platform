@@ -702,6 +702,10 @@ services:
       AI_ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       AI_OPENAI_API_KEY: ${OPENAI_API_KEY:-}
 
+      # Approved news source for the sentiment agent. Blank reports
+      # "not_configured" rather than attempting a call that would only 401.
+      AI_NEWS_API_KEY: ${NEWS_API_KEY:-}
+
       AI_AGENT_TIMEOUT_SECONDS: ${AI_AGENT_TIMEOUT_SECONDS:-60}
       AI_MAX_TOKENS: ${AI_MAX_TOKENS:-4096}
 

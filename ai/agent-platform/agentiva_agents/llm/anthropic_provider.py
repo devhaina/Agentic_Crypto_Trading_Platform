@@ -50,16 +50,21 @@ class AnthropicLlmProvider(LlmProvider):
             "Do not include any text before or after the JSON."
         )
 
+        # No `temperature` argument: the installed SDK's Messages API no longer
+        # accepts one (removed upstream) — passing it raises TypeError before any
+        # network call is made. request.temperature is kept on the contract for
+        # providers that still support sampling control.
         message = await self._client.messages.create(
             model=self._model,
             max_tokens=request.max_tokens,
-            temperature=request.temperature,
             system=request.system_prompt,
             messages=[{"role": "user", "content": user_content}],
         )
 
+        from anthropic.types import TextBlock
+
         text = "".join(
-            block.text for block in message.content if getattr(block, "type", "") == "text"
+            block.text for block in message.content if isinstance(block, TextBlock)
         ).strip()
 
         content = self._parse_json(text)

@@ -19,6 +19,8 @@ from agentiva_agents.llm.anthropic_provider import create_provider
 from agentiva_agents.llm.provider import LlmProvider
 from agentiva_agents.orchestrator.graph import AgentOrchestrator
 from agentiva_agents.tools.market_tools import PlatformReadClient, register_market_tools
+from agentiva_agents.tools.news_tools import NewsClient, register_news_tools
+from agentiva_agents.tools.onchain_tools import OnChainClient, register_onchain_tools
 from agentiva_agents.tools.registry import ToolRegistry
 
 logger = structlog.get_logger(__name__)
@@ -33,10 +35,14 @@ class PlatformContext:
     provider: LlmProvider
     orchestrator: AgentOrchestrator
     read_client: PlatformReadClient
+    news_client: NewsClient
+    onchain_client: OnChainClient
 
     async def aclose(self) -> None:
-        """Releases the HTTP client on shutdown."""
+        """Releases every HTTP client on shutdown."""
         await self.read_client.aclose()
+        await self.news_client.aclose()
+        await self.onchain_client.aclose()
 
 
 def build_platform(settings: Settings) -> PlatformContext:
@@ -47,9 +53,13 @@ def build_platform(settings: Settings) -> PlatformContext:
     stops the process from starting rather than being discovered later.
     """
     read_client = PlatformReadClient(settings)
+    news_client = NewsClient(settings)
+    onchain_client = OnChainClient(settings)
 
     registry = ToolRegistry()
     register_market_tools(registry, read_client)
+    register_news_tools(registry, news_client)
+    register_onchain_tools(registry, onchain_client)
 
     # Belt and braces: verifies the whole registered set against the allow-list,
     # catching anything added by a path that bypassed register().
@@ -98,6 +108,8 @@ def build_platform(settings: Settings) -> PlatformContext:
         provider=provider,
         orchestrator=orchestrator,
         read_client=read_client,
+        news_client=news_client,
+        onchain_client=onchain_client,
     )
 
 

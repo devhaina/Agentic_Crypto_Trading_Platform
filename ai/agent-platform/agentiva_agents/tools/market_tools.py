@@ -113,16 +113,6 @@ def register_market_tools(registry: ToolRegistry, client: PlatformReadClient) ->
         """
         return await client.get("/risk/policies/default")
 
-    async def get_news(symbol: str | None = None, limit: int = 20) -> Any:
-        """Returns approved market news.
-
-        Phase 7 wires an approved news source. Until then this returns an empty
-        set, and the sentiment agent reports low confidence accordingly rather
-        than inventing a sentiment reading.
-        """
-        _ = (symbol, limit)
-        return {"headlines": [], "source": "not_configured"}
-
     registry.register(
         "get_market_data",
         "Returns the latest ticker for a symbol: bid, ask, last price and exchange timestamp.",
@@ -186,13 +176,4 @@ def register_market_tools(registry: ToolRegistry, client: PlatformReadClient) ->
         "get_risk_policy",
         "Returns the active risk policy limits. Read-only; agents cannot change them.",
         get_risk_policy,
-    )
-    registry.register(
-        "get_news",
-        "Returns approved market news headlines for a symbol.",
-        get_news,
-        {
-            "symbol": {"type": "string", "description": "Trading pair"},
-            "limit": {"type": "integer", "description": "Headlines to return"},
-        },
     )

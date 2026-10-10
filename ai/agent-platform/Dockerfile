@@ -43,7 +43,7 @@ COPY pyproject.toml ./
 COPY agentiva_agents/__init__.py ./agentiva_agents/__init__.py
 
 RUN pip install --upgrade pip setuptools wheel \
-    && pip install .
+    && pip install ".[anthropic]"
 
 # -----------------------------------------------------------------------------
 # Stage 2 — runtime

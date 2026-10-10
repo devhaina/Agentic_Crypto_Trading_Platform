@@ -129,6 +129,15 @@ class StubLlmProvider(LlmProvider):
         else:
             regime, codes = "RANGING", ["NO_CLEAR_TREND"]
 
+        notes = "Deterministic rule-based regime classification."
+        onchain = context.get("get_onchain_metrics")
+        if isinstance(onchain, dict) and onchain.get("available"):
+            codes = [*codes, "ONCHAIN_DATA_AVAILABLE"]
+            notes += (
+                f" On-chain: hash rate {onchain.get('hash_rate_gh_s', 'n/a')} GH/s, "
+                f"difficulty {onchain.get('difficulty', 'n/a')}."
+            )
+
         return {
             "agent_name": "market_agent",
             "symbol": symbol,
@@ -137,7 +146,7 @@ class StubLlmProvider(LlmProvider):
             "volatility_percent": str(volatility.quantize(Decimal("0.01"))),
             "trend_strength": str(trend.quantize(Decimal("0.0001"))),
             "reason_codes": codes,
-            "notes": "Deterministic rule-based regime classification.",
+            "notes": notes,
         }
 
     def _technical(self, symbol: str, context: dict[str, Any]) -> dict[str, Any]:
@@ -203,22 +212,88 @@ class StubLlmProvider(LlmProvider):
             "notes": f"Rule-based indicator score {score}.",
         }
 
+    #: Small, fixed lexicons. Not NLP — a reproducible, auditable word count,
+    #: consistent with every other rule in this provider.
+    _BULLISH_WORDS = (
+        "surge", "rally", "soar", "bullish", "breakout", "record high", "gain",
+        "upgrade", "adoption", "approval", "inflow", "accumulat", "recover",
+    )
+    _BEARISH_WORDS = (
+        "crash", "plunge", "slump", "bearish", "sell-off", "selloff", "record low",
+        "loss", "downgrade", "hack", "exploit", "ban", "lawsuit", "outflow", "liquidat",
+    )
+
     def _sentiment(self, symbol: str, context: dict[str, Any]) -> dict[str, Any]:
         headlines = context.get("headlines") or []
-        count = len(headlines) if isinstance(headlines, list) else 0
+        news_source = str(context.get("news_source") or "")
 
-        # No approved news source is wired until Phase 7. Reporting zero
-        # confidence is the honest answer; a neutral reading presented
-        # confidently would let a proposal cite evidence that does not exist.
+        if not isinstance(headlines, list) or not headlines:
+            # "not_configured" (no key supplied) and "unavailable" (the source
+            # was reachable-but-failing, or returned nothing) are both honest
+            # zero-confidence outcomes — neither fabricates a neutral reading.
+            reason = (
+                "NEWS_SOURCE_UNAVAILABLE"
+                if news_source == "unavailable"
+                else "NO_NEWS_SOURCE_CONFIGURED"
+            )
+            return {
+                "agent_name": "sentiment_agent",
+                "symbol": symbol,
+                "confidence": "0",
+                "sentiment_score": "0",
+                "headline_count": 0,
+                "sources": [],
+                "reason_codes": [reason],
+                "notes": "No approved news source produced headlines; sentiment is not assessed.",
+            }
+
+        titles: list[str] = []
+        sources: list[str] = []
+        for headline in headlines:
+            if isinstance(headline, dict):
+                title = str(headline.get("title", ""))
+                source = str(headline.get("source", ""))
+            else:
+                title, source = str(headline), ""
+            titles.append(title)
+            if source and source not in sources:
+                sources.append(source)
+
+        count = len(titles)
+        bullish_hits = sum(
+            1 for title in titles if any(word in title.lower() for word in self._BULLISH_WORDS)
+        )
+        bearish_hits = sum(
+            1 for title in titles if any(word in title.lower() for word in self._BEARISH_WORDS)
+        )
+
+        raw_score = Decimal(bullish_hits - bearish_hits) / Decimal(count)
+        sentiment_score = max(Decimal(-1), min(Decimal(1), raw_score))
+
+        if sentiment_score > Decimal("0.15"):
+            codes = ["BULLISH_HEADLINES_DOMINANT"]
+        elif sentiment_score < Decimal("-0.15"):
+            codes = ["BEARISH_HEADLINES_DOMINANT"]
+        else:
+            codes = ["MIXED_OR_NEUTRAL_HEADLINES"]
+
+        # Confidence scales with how much evidence there is, capped well below
+        # certainty — a word count over a handful of headlines is a weak
+        # signal even when it agrees with itself.
+        confidence = min(Decimal("0.6"), Decimal("0.15") + Decimal("0.03") * count)
+
         return {
             "agent_name": "sentiment_agent",
             "symbol": symbol,
-            "confidence": "0" if count == 0 else "0.4",
-            "sentiment_score": "0",
+            "confidence": str(confidence.quantize(Decimal("0.01"))),
+            "sentiment_score": str(sentiment_score.quantize(Decimal("0.01"))),
             "headline_count": count,
-            "sources": [],
-            "reason_codes": ["NO_NEWS_SOURCE_CONFIGURED"] if count == 0 else ["NEUTRAL_SENTIMENT"],
-            "notes": "No approved news source is configured; sentiment is not assessed.",
+            "sources": sources[:20],
+            "reason_codes": codes,
+            "notes": (
+                f"Keyword-scored {count} headlines from {news_source or 'an approved source'}: "
+                f"{bullish_hits} bullish, {bearish_hits} bearish."
+            ),
         }
 
     def _portfolio(self, symbol: str, context: dict[str, Any]) -> dict[str, Any]:

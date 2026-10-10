@@ -51,7 +51,7 @@ class MarketAgent(Agent[MarketAnalysis]):
 
     name = "market_agent"
     version = "1.0.0"
-    required_tools = ("get_market_data", "get_candles", "get_indicators")
+    required_tools = ("get_market_data", "get_candles", "get_indicators", "get_onchain_metrics")
 
     @property
     def output_model(self) -> type[MarketAnalysis]:
@@ -148,6 +148,7 @@ class SentimentAgent(Agent[SentimentAnalysis]):
         news = context.get("get_news")
         if isinstance(news, dict):
             context["headlines"] = news.get("headlines", [])
+            context["news_source"] = news.get("source", "")
         return context
 
 

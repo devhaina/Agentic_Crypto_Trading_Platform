@@ -149,17 +149,25 @@ class TestRegistryCompleteness:
     async def test_the_production_registry_passes_its_own_audit(self) -> None:
         from agentiva_agents.config import Settings
         from agentiva_agents.tools.market_tools import PlatformReadClient, register_market_tools
+        from agentiva_agents.tools.news_tools import NewsClient, register_news_tools
+        from agentiva_agents.tools.onchain_tools import OnChainClient, register_onchain_tools
 
         settings = Settings()
-        client = PlatformReadClient(settings)
+        read_client = PlatformReadClient(settings)
+        news_client = NewsClient(settings)
+        onchain_client = OnChainClient(settings)
 
         try:
             registry = ToolRegistry()
-            register_market_tools(registry, client)
+            register_market_tools(registry, read_client)
+            register_news_tools(registry, news_client)
+            register_onchain_tools(registry, onchain_client)
 
             # Must not raise: every registered tool is on the allow-list.
             registry.assert_complete()
 
             assert set(registry.names) <= READ_ONLY_TOOL_NAMES
         finally:
-            await client.aclose()
+            await read_client.aclose()
+            await news_client.aclose()
+            await onchain_client.aclose()
