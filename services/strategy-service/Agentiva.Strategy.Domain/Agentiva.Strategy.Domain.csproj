@@ -6,10 +6,13 @@
   </PropertyGroup>
 
   <!--
-    No EF Core, no ASP.NET, no messaging, no Npgsql. The indicator maths and
-    the strategies' entry/exit decisions are the part of this service that
-    must stay provable without a database or a broker, the same discipline
-    Agentiva.Risk.Domain applies to position sizing.
+    No EF Core, no ASP.NET, no messaging, no Npgsql — the same discipline
+    Agentiva.Risk.Domain applies to position sizing. The indicator maths and
+    the strategies' entry/exit decisions themselves moved out to
+    Agentiva.BuildingBlocks.TradingRules in Phase 8, so the Backtesting
+    Service can replay the exact same compiled rules this service runs live.
+    What stays here is StrategyDefinition/Signal: the persisted identity a
+    signal is attributed to, not the decision logic that produced it.
   -->
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\building-blocks\Agentiva.BuildingBlocks.Common\Agentiva.BuildingBlocks.Common.csproj" />

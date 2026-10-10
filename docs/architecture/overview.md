@@ -61,7 +61,7 @@ Three independent mechanisms keep an AI agent from moving funds, not one:
 | **Execution Service** | Exchange orders — the only service with credentials | **Full** |
 | **Portfolio Service** | Balances, positions, P&L | **Full** |
 | **Strategy Service** | Indicator engine, deterministic signals | **Full** |
-| Backtesting Service | Historical simulation | Skeleton |
+| Backtesting Service | Historical simulation | Delivered (Phase 8) |
 | Reconciliation Service | Exchange-vs-internal-state comparison | Skeleton |
 | Notification Service | Alert delivery | Skeleton |
 | Audit Service | Append-only decision record | Skeleton |

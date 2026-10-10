@@ -12,6 +12,9 @@
   </Folder>
   <Folder Name="/services/backtesting-service/">
     <Project Path="services/backtesting-service/Agentiva.Backtesting.Api/Agentiva.Backtesting.Api.csproj" />
+    <Project Path="services/backtesting-service/Agentiva.Backtesting.Application/Agentiva.Backtesting.Application.csproj" />
+    <Project Path="services/backtesting-service/Agentiva.Backtesting.Domain/Agentiva.Backtesting.Domain.csproj" />
+    <Project Path="services/backtesting-service/Agentiva.Backtesting.Infrastructure/Agentiva.Backtesting.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/services/configuration-service/">
     <Project Path="services/configuration-service/Agentiva.Configuration.Api/Agentiva.Configuration.Api.csproj" />
@@ -70,6 +73,7 @@
     <Project Path="src/building-blocks/Agentiva.BuildingBlocks.Observability/Agentiva.BuildingBlocks.Observability.csproj" />
     <Project Path="src/building-blocks/Agentiva.BuildingBlocks.Persistence/Agentiva.BuildingBlocks.Persistence.csproj" />
     <Project Path="src/building-blocks/Agentiva.BuildingBlocks.ServiceDefaults/Agentiva.BuildingBlocks.ServiceDefaults.csproj" />
+    <Project Path="src/building-blocks/Agentiva.BuildingBlocks.TradingRules/Agentiva.BuildingBlocks.TradingRules.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Agentiva.UnitTests/Agentiva.UnitTests.csproj" />

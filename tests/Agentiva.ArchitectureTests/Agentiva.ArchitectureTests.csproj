@@ -38,6 +38,9 @@
     <ProjectReference Include="..\..\services\portfolio-service\Agentiva.Portfolio.Domain\Agentiva.Portfolio.Domain.csproj" />
     <ProjectReference Include="..\..\services\portfolio-service\Agentiva.Portfolio.Application\Agentiva.Portfolio.Application.csproj" />
     <ProjectReference Include="..\..\services\portfolio-service\Agentiva.Portfolio.Infrastructure\Agentiva.Portfolio.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\services\backtesting-service\Agentiva.Backtesting.Domain\Agentiva.Backtesting.Domain.csproj" />
+    <ProjectReference Include="..\..\services\backtesting-service\Agentiva.Backtesting.Application\Agentiva.Backtesting.Application.csproj" />
+    <ProjectReference Include="..\..\services\backtesting-service\Agentiva.Backtesting.Infrastructure\Agentiva.Backtesting.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>

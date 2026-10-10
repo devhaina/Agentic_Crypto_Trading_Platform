@@ -184,6 +184,41 @@ likely never seen real portfolio data through the gateway — a gap that
 predates Phase 7 and is flagged here rather than fixed, since closing it is
 a Trading Service / gateway routing change outside Phase 7's scope.
 
+## A backtest runs synchronously within its own HTTP request
+
+`RunBacktestCommandHandler` (Backtesting Service, Phase 8) resolves the
+strategy, reads historical candles, simulates, scores, and persists the
+result all within the request that triggers it — no background job queue,
+no polling-for-status endpoint. A deliberate scope decision for a bounded
+CPU computation over data already in the database, not a limitation
+discovered after shipping: see the remarks on `RunBacktestCommand` itself.
+A backtest period long enough to make the request slow (many years of
+sub-minute candles) is the trigger for building a job queue in a later
+phase, not a reason to build one speculatively now.
+
+## Walk-forward validation checks consistency, not parameter re-optimisation
+
+`PerformanceCalculator.SplitIntoWindows` (Backtesting Service, Phase 8)
+slices a run into sequential windows and scores each independently, which
+is the half of walk-forward validation that catches performance
+concentrated in one lucky window. The other half — re-fitting a strategy's
+tunable parameters on each window's in-sample data before scoring it
+out-of-sample — has nothing to re-fit: `EMA_RSI`, `BREAKOUT` and
+`TREND_FOLLOWING` each hardcode their periods as constants in code,
+deliberately, so a live signal is reproducible. See the remarks on
+`WalkForwardWindow` for the full reasoning.
+
+## A backtest trades one position at a time, never reversing on a new signal
+
+`BacktestSimulator` (Backtesting Service, Phase 8) ignores every signal
+while a position is open, checking only its own stop and take-profit until
+it closes; the earliest a new entry can land is the bar after that. Real
+trading-system backtesters often model an opposite signal as an immediate
+reverse (close and re-open in one bar) or allow pyramiding into the same
+side. Neither is modelled here — a deliberate simplification that keeps
+position sizing and equity bookkeeping unambiguous, documented on
+`BacktestSimulator` itself, not a bug found after the fact.
+
 ## The AI platform runs on a deterministic stub by default
 
 `AI_LLM_PROVIDER=stub` is the default in every committed environment file.

@@ -1,3 +1,6 @@
+using System.Globalization;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Agentiva.BuildingBlocks.Domain.Exceptions;
 
 namespace Agentiva.BuildingBlocks.Domain.Primitives;
@@ -22,6 +25,7 @@ namespace Agentiva.BuildingBlocks.Domain.Primitives;
 /// against money always goes through <see cref="AsFraction"/>.
 /// </para>
 /// </remarks>
+[JsonConverter(typeof(PercentageJsonConverter))]
 public readonly record struct Percentage : IComparable<Percentage>
 {
     private Percentage(decimal percent) => Percent = percent;
@@ -86,4 +90,40 @@ public readonly record struct Percentage : IComparable<Percentage>
     public int CompareTo(Percentage other) => Percent.CompareTo(other.Percent);
 
     public override string ToString() => $"{Percent.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture)}%";
+}
+
+/// <summary>
+/// Reads and writes a <see cref="Percentage"/> as a single JSON string of its
+/// percent value, e.g. <c>"42.5"</c>.
+/// </summary>
+/// <remarks>
+/// Without this, <see cref="JsonSerializer"/>'s default reflection-based
+/// converter writes <see cref="Percentage"/> correctly (a JSON object with
+/// its two read-only properties) but cannot read it back: the type has no
+/// public constructor or settable property a deserializer can use, so it
+/// silently materialises a zeroed <c>default(Percentage)</c> instead of
+/// throwing — a value quietly becomes zero, with no error anywhere, the
+/// first time this type is serialised to JSON and read back rather than
+/// passed through <c>PercentageConverter</c> (the EF-only, decimal-column
+/// counterpart). Caught only by an end-to-end run that actually persisted a
+/// value through this path and read it back, not by any unit test against
+/// an in-memory object.
+/// </remarks>
+public sealed class PercentageJsonConverter : JsonConverter<Percentage>
+{
+    public override Percentage Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        var percent = reader.TokenType switch
+        {
+            JsonTokenType.String => decimal.Parse(reader.GetString()!, CultureInfo.InvariantCulture),
+            JsonTokenType.Number => reader.GetDecimal(),
+            _ => throw new JsonException(
+                $"Expected a JSON string or number for {nameof(Percentage)} but found {reader.TokenType}.")
+        };
+
+        return Percentage.FromPercent(percent);
+    }
+
+    public override void Write(Utf8JsonWriter writer, Percentage value, JsonSerializerOptions options)
+        => writer.WriteStringValue(value.Percent.ToString(CultureInfo.InvariantCulture));
 }

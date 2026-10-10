@@ -15,7 +15,7 @@ One database per owning service, provisioned by
 | `strategy_db` | Strategy | `strategies`, `signals` + outbox/inbox/idempotency |
 | `agent_db` | *(reserved)* | Not currently used — the AI platform is stateless in Phase 1 |
 | `audit_db` | Audit | *(none yet — Phase 5)* |
-| `backtesting_db` | Backtesting | *(none yet — Phase 8)* |
+| `backtesting_db` | Backtesting | `backtest_runs`, `backtest_trades` + outbox/inbox/idempotency |
 | `configuration_db` | Configuration | *(none yet — Phase 11)* |
 | `reconciliation_db` | Reconciliation | *(none yet — Phase 6)* |
 | `notification_db` | Notification | *(none yet — Phase 11)* |
@@ -57,7 +57,10 @@ per order. The first four are written by the Market Data Service (Phase 2);
 `indicator_snapshots` by the Strategy Service (Phase 3); `portfolio_snapshots`
 by the Portfolio Service (Phase 6, one row per processed fill) — all into
 this same shared database. See known-limitations.md on why that is
-table-level ownership, not a layering slip.
+table-level ownership, not a layering slip. As of Phase 8, the Backtesting
+Service is one more reader of `market_candles` (via `HistoricalCandleReader`,
+raw Npgsql, filtered to `is_closed = TRUE`) — the first consumer of this
+table that isn't the service writing it.
 
 ## The money type
 

@@ -9,7 +9,9 @@ namespace Agentiva.Strategy.Domain.Entities;
 /// </summary>
 /// <remarks>
 /// The decision logic itself lives entirely in code — see
-/// <c>Agentiva.Strategy.Domain.Strategies</c> — not in this row. What this
+/// <c>Agentiva.BuildingBlocks.TradingRules.Strategies</c> (shared with the
+/// Backtesting Service as of Phase 8, so a backtest replays the exact same
+/// rules this service runs live) — not in this row. What this
 /// row owns is the stable identity a signal is attributed to and which
 /// version of that logic was active when the signal was produced, so a
 /// signal can always be traced back to exactly the rules that produced it
@@ -33,7 +35,7 @@ public sealed class StrategyDefinition : AggregateRoot<StrategyId>
         UpdatedAt = createdAt;
     }
 
-    /// <summary>Stable strategy name, e.g. <c>EMA_RSI</c>. Matches <see cref="Strategies.IStrategy.Name"/>.</summary>
+    /// <summary>Stable strategy name, e.g. <c>EMA_RSI</c>. Matches the strategy's own <c>IStrategy.Name</c>.</summary>
     public string Name { get; private set; } = string.Empty;
 
     public string Description { get; private set; } = string.Empty;

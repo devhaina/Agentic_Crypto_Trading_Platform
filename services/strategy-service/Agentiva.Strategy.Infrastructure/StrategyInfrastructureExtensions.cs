@@ -5,7 +5,7 @@ using Agentiva.Contracts.Events;
 using Agentiva.Contracts.Events.Market;
 using Agentiva.Strategy.Application.Abstractions;
 using Agentiva.Strategy.Application.Queries;
-using Agentiva.Strategy.Domain.Strategies;
+using Agentiva.BuildingBlocks.TradingRules.Strategies;
 using Agentiva.Strategy.Infrastructure.Caching;
 using Agentiva.Strategy.Infrastructure.Candles;
 using Agentiva.Strategy.Infrastructure.Configuration;

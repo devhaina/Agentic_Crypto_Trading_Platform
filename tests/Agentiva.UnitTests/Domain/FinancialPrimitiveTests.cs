@@ -1,3 +1,5 @@
+using System.Text.Json;
+using Agentiva.BuildingBlocks.Common.Json;
 using Agentiva.BuildingBlocks.Domain.Exceptions;
 using Agentiva.BuildingBlocks.Domain.Primitives;
 using Shouldly;
@@ -62,6 +64,29 @@ public sealed class PercentageTests
     {
         var original = Percentage.FromPercent(0.123456m);
         Percentage.FromFraction(original.AsFraction).Percent.ShouldBe(0.123456m);
+    }
+
+    /// <summary>
+    /// A real production-shaped bug, caught only by running a built container
+    /// against a live database (Phase 8's <c>PerformanceMetrics</c>, stored
+    /// as a jsonb blob): before <see cref="PercentageJsonConverter"/> existed,
+    /// <see cref="JsonSerializer"/>'s default reflection converter wrote
+    /// <see cref="Percentage"/> correctly but had no way to read it back — no
+    /// public constructor, no settable property — so it silently produced a
+    /// zeroed <c>default(Percentage)</c> on deserialisation instead of
+    /// throwing. A unit test against an in-memory object never notices,
+    /// because nothing serialises it; this is the one test that actually
+    /// exercises the round trip the way the jsonb column does.
+    /// </summary>
+    [Fact]
+    public void Round_trips_through_json()
+    {
+        var original = Percentage.FromPercent(42.5m);
+
+        var json = JsonSerializer.Serialize(original, AgentivaJson.Options);
+        var restored = JsonSerializer.Deserialize<Percentage>(json, AgentivaJson.Options);
+
+        restored.Percent.ShouldBe(42.5m);
     }
 }
 

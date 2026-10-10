@@ -1,4 +1,4 @@
-namespace Agentiva.Strategy.Domain.Indicators;
+namespace Agentiva.BuildingBlocks.TradingRules.Indicators;
 
 /// <summary>
 /// One closed OHLCV bar, as the Strategy Service itself understands it.

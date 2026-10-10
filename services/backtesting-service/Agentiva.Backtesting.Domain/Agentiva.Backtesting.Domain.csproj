@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Agentiva.Backtesting.Domain</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <!--
+    No EF Core, no ASP.NET, no messaging, no Npgsql. The simulation itself —
+    the part of this service most worth getting right — must stay provable
+    against a plain list of bars, the same discipline Agentiva.Strategy.Domain
+    and Agentiva.Risk.Domain apply to their own pure decision logic.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\building-blocks\Agentiva.BuildingBlocks.Common\Agentiva.BuildingBlocks.Common.csproj" />
+    <ProjectReference Include="..\..\..\src\building-blocks\Agentiva.BuildingBlocks.Domain\Agentiva.BuildingBlocks.Domain.csproj" />
+    <ProjectReference Include="..\..\..\src\building-blocks\Agentiva.BuildingBlocks.TradingRules\Agentiva.BuildingBlocks.TradingRules.csproj" />
+  </ItemGroup>
+
+</Project>

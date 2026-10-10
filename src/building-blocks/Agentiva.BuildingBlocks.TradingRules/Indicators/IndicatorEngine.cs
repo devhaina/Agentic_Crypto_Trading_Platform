@@ -1,4 +1,4 @@
-namespace Agentiva.Strategy.Domain.Indicators;
+namespace Agentiva.BuildingBlocks.TradingRules.Indicators;
 
 /// <summary>
 /// The deterministic indicator engine: EMA, RSI, MACD, ATR and VWAP over a

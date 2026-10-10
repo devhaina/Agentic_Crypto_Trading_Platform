@@ -31,7 +31,9 @@ public sealed class FinancialSafetyTests
         typeof(Execution.Domain.Orders.Order).Assembly,
         typeof(Execution.Application.Orders.SubmitOrderCommand).Assembly,
         typeof(Portfolio.Domain.Positions.Position).Assembly,
-        typeof(Portfolio.Application.Positions.GetPositionsQuery).Assembly
+        typeof(Portfolio.Application.Positions.GetPositionsQuery).Assembly,
+        typeof(Backtesting.Domain.Runs.BacktestRun).Assembly,
+        typeof(Backtesting.Application.Commands.RunBacktestCommand).Assembly
     ];
 
     /// <summary>

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Agentiva.BuildingBlocks.TradingRules</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <!--
+    No EF Core, no ASP.NET, no messaging, no Npgsql. The indicator maths and
+    the strategies' entry/exit decisions must stay provable without a
+    database or a broker, and — the reason this moved out of
+    Agentiva.Strategy.Domain in Phase 8 — must be the exact same compiled
+    code the Strategy Service runs live and the Backtesting Service replays
+    historically. Two copies that could drift apart would defeat the entire
+    point of backtesting: predicting live behaviour.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Agentiva.BuildingBlocks.Domain\Agentiva.BuildingBlocks.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

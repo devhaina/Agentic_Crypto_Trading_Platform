@@ -1,5 +1,5 @@
 using Agentiva.BuildingBlocks.Common.Json;
-using Agentiva.Strategy.Domain.Indicators;
+using Agentiva.BuildingBlocks.TradingRules.Indicators;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 

@@ -1,6 +1,6 @@
 using Agentiva.BuildingBlocks.Domain.Primitives;
 
-namespace Agentiva.Strategy.Domain.Strategies;
+namespace Agentiva.BuildingBlocks.TradingRules.Strategies;
 
 /// <summary>Shared ATR-based stop-loss/take-profit sizing used by every strategy here.</summary>
 /// <remarks>

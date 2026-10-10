@@ -1,6 +1,6 @@
 using Agentiva.BuildingBlocks.Domain.Primitives;
 
-namespace Agentiva.Strategy.Domain.Strategies;
+namespace Agentiva.BuildingBlocks.TradingRules.Strategies;
 
 /// <summary>
 /// Rides an established trend: price and the medium EMA both on the same

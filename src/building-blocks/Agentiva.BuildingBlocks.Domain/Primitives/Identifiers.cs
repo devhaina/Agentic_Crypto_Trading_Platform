@@ -213,6 +213,15 @@ public readonly record struct BacktestId(Guid Value) : IStronglyTypedId<Backtest
     public override string ToString() => Value.ToString();
 }
 
+public readonly record struct BacktestTradeId(Guid Value) : IStronglyTypedId<BacktestTradeId>
+{
+    public static BacktestTradeId From(Guid value) => new(value);
+
+    public static BacktestTradeId New() => new(Guid.CreateVersion7());
+
+    public override string ToString() => Value.ToString();
+}
+
 public readonly record struct AuditEventId(Guid Value) : IStronglyTypedId<AuditEventId>
 {
     public static AuditEventId From(Guid value) => new(value);

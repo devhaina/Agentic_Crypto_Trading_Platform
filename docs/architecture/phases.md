@@ -267,10 +267,79 @@ Implemented in order; each phase builds on what the last one shipped. See
   `tradingAccountId`) remains unfixed — out of this phase's scope, flagged
   in known-limitations.md.
 
-## Phase 8 — Backtesting
+## Phase 8 — Backtesting (delivered)
 
-Simulation engine with explicit fee/slippage modelling; Sharpe, Sortino,
-profit factor, max drawdown; walk-forward validation; look-ahead-bias guards.
+- A real, four-layer Backtesting Service (`services/backtesting-service`),
+  replacing the Phase 1 skeleton. `BacktestRun`/`BacktestTrade` aggregates in
+  `backtesting_db`; a synchronous `RunBacktestCommand` that resolves a
+  strategy, reads historical candles, simulates, scores, and persists the
+  outcome in one request — a deliberate scope decision, not an oversight:
+  see known-limitations.md on why no job queue was built for this.
+- The indicator engine and the three deterministic strategies
+  (`EMA_RSI`/`BREAKOUT`/`TREND_FOLLOWING`) moved out of
+  `Agentiva.Strategy.Domain` into a new shared building block,
+  `Agentiva.BuildingBlocks.TradingRules` — a pure move, re-verified against
+  the Strategy Service's own existing tests with zero intended behaviour
+  change. The Backtesting Service's simulator runs this exact same compiled
+  code, not a reimplementation, so a backtest result is structurally
+  guaranteed to predict live behaviour rather than merely resemble it. The
+  architecture test suite now asserts the Backtesting Service's domain
+  doesn't reference Strategy/Trading/Risk/Execution/Portfolio directly,
+  the same discipline already enforced between those services.
+- `BacktestSimulator`: replays one strategy bar by bar over a rolling
+  window built the same way `CandleBuffer` builds it live, which makes
+  look-ahead bias structurally impossible rather than a rule to remember — a
+  position's stop/take-profit, once set from one bar's signal, is checked
+  starting only the next bar. One position at a time; a bar that touches
+  both the stop and the target assumes the stop was hit first (the standard
+  conservative convention); a gap through a level fills at the worse of the
+  bar's open or the level itself. Fees and slippage are a percentage drag on
+  notional per leg, exactly how `RiskPolicy.TakerFeePercent`/
+  `SlippageAssumptionPercent` already describe themselves. Position sizing
+  risks a fixed percentage of current equity against the signal's own
+  ATR-derived stop distance, capped so no trade can exceed the account's own
+  equity (no leverage).
+- `PerformanceCalculator`: total return, Sharpe and Sortino (annualised,
+  zero risk-free rate, `null` rather than an artificial zero/infinity when
+  not yet meaningful), profit factor, max drawdown, win rate, and
+  walk-forward validation — the full period sliced into sequential
+  non-overlapping windows, each scored independently with equity carried
+  forward between them. See `WalkForwardWindow`'s own remarks on what this
+  does and does not validate: the three strategies have no tunable
+  parameters to re-fit per window, so this checks consistency across time
+  rather than re-optimising anything.
+- Historical candles are read directly from the shared `market_db`'s
+  `market_candles` hypertable (`HistoricalCandleReader`, raw Npgsql,
+  `is_closed = TRUE` only) — the same table-level-ownership pattern
+  `IndicatorSnapshotWriter`/`PortfolioSnapshotWriter` already established,
+  just reading instead of writing, and the first consumer of that table
+  that isn't the service writing it.
+- Verified with 21 new unit tests (the simulator's stop/take/gap/look-ahead
+  mechanics against a strategy test double, and the metrics calculator's
+  arithmetic against hand-inspectable series) plus the pre-existing
+  Strategy Service tests re-run unchanged after the move, a real
+  `dotnet ef migrations add` against the new schema, a full solution build
+  with zero new warnings, and a real run of the built container against a
+  live Postgres/TimescaleDB stack: seeded candles, a POST that produced real
+  trades and metrics, and a GET that read them back.
+- That last step caught a real, platform-wide bug no unit test could have:
+  `Percentage` (the type that keeps a 0.5%/50% mix-up impossible everywhere
+  else) serialised correctly via `System.Text.Json` but had no public
+  constructor a deserialiser could use, so reading one back silently
+  produced a zeroed value instead of throwing — invisible until
+  `PerformanceMetrics`, stored as a jsonb blob, became the first thing in
+  the platform to round-trip a `Percentage` through JSON rather than through
+  the EF-only `PercentageConverter`. Fixed with a real
+  `[JsonConverter(typeof(PercentageJsonConverter))]` on the type itself (in
+  `Agentiva.BuildingBlocks.Domain`, so every future use is safe by
+  construction, not just this one), with a regression test exercising the
+  same round trip in `FinancialPrimitiveTests.cs`.
+- What this phase does not cover: `RunBacktestCommand` runs synchronously
+  within the HTTP request rather than through a background job queue — a
+  deliberate scope decision for a bounded CPU computation, not a limitation
+  discovered after the fact; a period long enough to make that a problem is
+  a job for a later phase. Walk-forward validation checks consistency across
+  time, not parameter re-optimisation, for the reason above.
 
 ## Phase 9 — Paper Trading
 

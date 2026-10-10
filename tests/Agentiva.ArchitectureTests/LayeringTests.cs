@@ -31,6 +31,9 @@ public sealed class LayeringTests
     private static Assembly ExecutionApplication => typeof(Execution.Application.Orders.SubmitOrderCommand).Assembly;
     private static Assembly PortfolioDomain => typeof(Portfolio.Domain.Positions.Position).Assembly;
     private static Assembly PortfolioApplication => typeof(Portfolio.Application.Positions.GetPositionsQuery).Assembly;
+    private static Assembly BacktestingDomain => typeof(Backtesting.Domain.Runs.BacktestRun).Assembly;
+    private static Assembly BacktestingApplication =>
+        typeof(Backtesting.Application.Commands.RunBacktestCommand).Assembly;
     private static Assembly BuildingBlocksDomain => typeof(Symbol).Assembly;
 
     /// <summary>
@@ -156,6 +159,20 @@ public sealed class LayeringTests
 
         portfolioExecutionResult.IsSuccessful.ShouldBeTrue(
             FailureMessage(portfolioExecutionResult, "references the execution service"));
+
+        // Phase 8's whole point is that a backtest predicts live behaviour by
+        // replaying the exact same rules — shared via
+        // Agentiva.BuildingBlocks.TradingRules, never by referencing the
+        // Strategy Service's own assemblies directly, or any of the services
+        // that actually touch money or an exchange.
+        var backtestingResult = Types.InAssembly(BacktestingDomain)
+            .ShouldNot()
+            .HaveDependencyOnAny(
+                "Agentiva.Strategy", "Agentiva.Trading", "Agentiva.Risk", "Agentiva.Execution", "Agentiva.Portfolio")
+            .GetResult();
+
+        backtestingResult.IsSuccessful.ShouldBeTrue(
+            FailureMessage(backtestingResult, "references another service directly"));
     }
 
     /// <summary>

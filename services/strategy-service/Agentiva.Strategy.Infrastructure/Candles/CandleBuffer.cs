@@ -1,4 +1,4 @@
-using Agentiva.Strategy.Domain.Indicators;
+using Agentiva.BuildingBlocks.TradingRules.Indicators;
 
 namespace Agentiva.Strategy.Infrastructure.Candles;
 

@@ -1,6 +1,6 @@
 using Agentiva.BuildingBlocks.Domain.Primitives;
 
-namespace Agentiva.Strategy.Domain.Strategies;
+namespace Agentiva.BuildingBlocks.TradingRules.Strategies;
 
 /// <summary>
 /// Donchian-channel breakout: the close exceeds the high or low of the

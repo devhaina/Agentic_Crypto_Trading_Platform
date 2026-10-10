@@ -1,7 +1,7 @@
 using Agentiva.BuildingBlocks.Domain.Primitives;
-using Agentiva.Strategy.Domain.Indicators;
+using Agentiva.BuildingBlocks.TradingRules.Indicators;
 
-namespace Agentiva.Strategy.Domain.Strategies;
+namespace Agentiva.BuildingBlocks.TradingRules.Strategies;
 
 /// <summary>
 /// EMA(12/26) crossover, filtered by RSI(14) so a cross deep into overbought

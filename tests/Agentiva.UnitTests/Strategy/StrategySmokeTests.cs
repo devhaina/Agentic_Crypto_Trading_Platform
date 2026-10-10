@@ -1,6 +1,6 @@
 using Agentiva.BuildingBlocks.Domain.Primitives;
-using Agentiva.Strategy.Domain.Indicators;
-using Agentiva.Strategy.Domain.Strategies;
+using Agentiva.BuildingBlocks.TradingRules.Indicators;
+using Agentiva.BuildingBlocks.TradingRules.Strategies;
 using Shouldly;
 using Xunit;
 

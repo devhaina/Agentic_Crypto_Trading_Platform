@@ -1,15 +1,16 @@
-namespace Agentiva.Strategy.Domain.Indicators;
+namespace Agentiva.BuildingBlocks.TradingRules.Indicators;
 
 /// <summary>Maps a Binance kline interval onto how many of that bar fit in a calendar year.</summary>
 /// <remarks>
-/// Exists solely to annualise a per-bar volatility estimate — see
-/// <see cref="IndicatorEngine.AnnualizedVolatilityPercent"/>. Deliberately not
-/// the Market Data Service's <c>Timeframe</c> value object: this is calendar
-/// arithmetic, not a validated domain concept, and duplicating a short,
-/// stable lookup table is cheaper than depending on another service's domain
-/// type for it.
+/// Exists to annualise a per-bar volatility estimate — see
+/// <see cref="IndicatorEngine.AnnualizedVolatilityPercent"/> — and, as of Phase
+/// 8, a backtest's per-bar return series for the Sharpe and Sortino ratios.
+/// Deliberately not the Market Data Service's <c>Timeframe</c> value object:
+/// this is calendar arithmetic, not a validated domain concept, and
+/// duplicating a short, stable lookup table is cheaper than depending on
+/// another service's domain type for it.
 /// </remarks>
-internal static class TimeframeCalendar
+public static class TimeframeCalendar
 {
     public static int? BarsPerYear(string timeframe) => timeframe switch
     {

@@ -1,4 +1,4 @@
-namespace Agentiva.Strategy.Domain.Indicators;
+namespace Agentiva.BuildingBlocks.TradingRules.Indicators;
 
 /// <summary>
 /// Every indicator value computed for one evaluation, keyed the same way

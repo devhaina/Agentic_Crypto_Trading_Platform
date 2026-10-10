@@ -1,6 +1,6 @@
 using Agentiva.BuildingBlocks.Common.Abstractions;
 using Agentiva.Strategy.Domain.Entities;
-using Agentiva.Strategy.Domain.Strategies;
+using Agentiva.BuildingBlocks.TradingRules.Strategies;
 using Agentiva.Strategy.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;

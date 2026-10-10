@@ -1,7 +1,7 @@
 using Agentiva.BuildingBlocks.Domain.Primitives;
-using Agentiva.Strategy.Domain.Indicators;
+using Agentiva.BuildingBlocks.TradingRules.Indicators;
 
-namespace Agentiva.Strategy.Domain.Strategies;
+namespace Agentiva.BuildingBlocks.TradingRules.Strategies;
 
 /// <summary>Everything one strategy evaluation needs: the closed bars and their indicators.</summary>
 /// <param name="Symbol">Trading pair the bars belong to.</param>
